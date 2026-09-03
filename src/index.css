@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: var(--theme-bg);
+  --color-bg-inverted: var(--theme-bg-inverted);
+  --color-bg-inverted-hover: var(--theme-bg-inverted-hover);
+  --color-surface: var(--theme-surface);
+  --color-surface-hover: var(--theme-surface-hover);
+  
+  --color-border: var(--theme-border);
+  --color-border-hover: var(--theme-border-hover);
+  --color-border-focus: var(--theme-border-focus);
+  
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
+  --color-text-muted: var(--theme-text-muted);
+  --color-text-inverted: var(--theme-text-inverted);
+  
+  --color-overlay: var(--theme-overlay);
+}
+
+:root {
+  /* Default: BLACK */
+  --theme-bg: #0A0A0B;
+  --theme-surface: #131316;
+  --theme-surface-hover: #1A1A1E;
+  
+  --theme-border: rgba(255, 255, 255, 0.05);
+  --theme-border-hover: rgba(255, 255, 255, 0.1);
+  --theme-border-focus: rgba(255, 255, 255, 0.2);
+  
+  --theme-text-primary: #FFFFFF;
+  --theme-text-secondary: #9CA3AF;
+  --theme-text-muted: #6B7280;
+  
+  --theme-bg-inverted: #FFFFFF;
+  --theme-bg-inverted-hover: #E4E4E7;
+  --theme-text-inverted: #0A0A0B;
+  
+  --theme-overlay: rgba(0, 0, 0, 0.6);
+}
+
+.theme-white {
+  /* WHITE Theme */
+  --theme-bg: #F8F8F7;
+  --theme-surface: #FFFFFF;
+  --theme-surface-hover: #F0F0EE;
+  
+  --theme-border: rgba(0, 0, 0, 0.08);
+  --theme-border-hover: rgba(0, 0, 0, 0.15);
+  --theme-border-focus: rgba(0, 0, 0, 0.25);
+  
+  --theme-text-primary: #1A1A1A;
+  --theme-text-secondary: #52525B;
+  --theme-text-muted: #A1A1AA;
+  
+  --theme-bg-inverted: #18181B;
+  --theme-bg-inverted-hover: #27272A;
+  --theme-text-inverted: #FFFFFF;
+  
+  --theme-overlay: rgba(255, 255, 255, 0.6);
+}

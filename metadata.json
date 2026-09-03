@@ -1,0 +1,6 @@
+{
+  "name": "NE / DIRECTOR",
+  "description": "Director Chief of Staff - Premium professional operating interface for film directors.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
