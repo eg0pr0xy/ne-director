@@ -13,6 +13,7 @@ interface AppState {
   focusMode: FocusMode;
   todayState: TodayState | null;
   loading: boolean;
+  loadError: string | null;
   selectedItem: AttentionItem | null; // For context drawer
   isDrawerOpen: boolean;
   toastMessage: string | null;
@@ -54,6 +55,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [focusMode, setFocusMode] = useState<FocusMode>('NORMAL');
   const [todayState, setTodayState] = useState<TodayState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   
   const [selectedItem, setSelectedItem] = useState<AttentionItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -139,19 +141,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const data = await apiService.getToday();
-      const peopleData = await apiService.getPeople();
-      const projectsData = await apiService.getProjects();
-      const attentionData = await apiService.getAttention();
-      const timelineData = await apiService.getTimeline();
-      
-      setTodayState(data);
-      setPeople(peopleData);
-      setProjects(projectsData);
-      setAttentionItems(attentionData);
-      setAllTimeline(timelineData);
-      
-      setLoading(false);
+      setLoadError(null);
+      try {
+        const [data, peopleData, projectsData, attentionData, timelineData] = await Promise.all([apiService.getToday(), apiService.getPeople(), apiService.getProjects(), apiService.getAttention(), apiService.getTimeline()]);
+        setTodayState(data); setPeople(peopleData); setProjects(projectsData); setAttentionItems(attentionData); setAllTimeline(timelineData);
+      } catch {
+        setLoadError('Director API unavailable. No mock data is being shown.');
+      } finally { setLoading(false); }
     };
     loadData();
   }, []);
@@ -264,7 +260,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <AppContext.Provider value={{
       currentPage, setCurrentPage,
       focusMode, setFocusMode,
-      todayState, loading,
+      todayState, loading, loadError,
       selectedItem, isDrawerOpen, openDrawer, closeDrawer,
       toastMessage, showToast, hideToast,
       profile, updateProfile, resetProfile,

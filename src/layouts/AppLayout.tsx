@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { cn } from '../utils/cn';
 
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { toastMessage, hideToast, currentPage } = useApp();
+  const { toastMessage, hideToast, currentPage, loadError } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -34,6 +34,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       </div>
 
       <div className="flex-1 flex flex-col relative min-w-0">
+        {loadError && <div role="alert" className="bg-red-500/15 border-b border-red-500/40 px-6 py-3 text-sm text-red-200">{loadError}</div>}
         {/* Mobile Header with Hamburger */}
         <header className="lg:hidden flex items-center justify-between p-6 border-b border-border bg-bg">
           <h1 className="text-xl font-bold tracking-tight text-text-primary leading-none">
