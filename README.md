@@ -15,6 +15,17 @@ npm run dev
 npm run build
 ```
 
+## Local core API (development only)
+
+```bash
+docker compose -f docker-compose.core.yml up -d
+export DIRECTOR_DATABASE_URL='postgres://ne_director:ne_director_local_only@127.0.0.1:55434/ne_director'
+TMPDIR=/tmp npm run core:migrate
+TMPDIR=/tmp npm run core:dev
+```
+
+Set `VITE_DIRECTOR_RUNTIME_MODE=api` and `VITE_DIRECTOR_API_BASE_URL=http://127.0.0.1:4600/api/v1` to use the API service seam. `mock` remains explicit; API failure does not fall back to mock data.
+
 ## Architecture
 
 This project is a React-based frontend prototype for the NE Director Chief of Staff application.

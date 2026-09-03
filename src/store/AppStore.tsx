@@ -42,7 +42,7 @@ interface AppState {
   closeDrawer: () => void;
   showToast: (msg: string) => void;
   hideToast: () => void;
-  approveDecision: (itemId: string, decisionLabel: string) => void;
+  approveDecision: (itemId: string, decisionLabel: string) => Promise<void>;
   getPerson: (id: string) => Person | undefined;
   getProject: (id: string) => Project | undefined;
 }
@@ -174,8 +174,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const hideToast = () => setToastMessage(null);
 
-  const approveDecision = (itemId: string, decisionLabel: string) => {
+  const approveDecision = async (itemId: string, decisionLabel: string) => {
     if (!todayState) return;
+    if (import.meta.env.VITE_DIRECTOR_RUNTIME_MODE === 'api') {
+      try {
+        await apiService.recordDecision(itemId, 'LOCATION_B');
+        const [data, peopleData, projectsData, attentionData, timelineData] = await Promise.all([apiService.getToday(), apiService.getPeople(), apiService.getProjects(), apiService.getAttention(), apiService.getTimeline()]);
+        setTodayState(data); setPeople(peopleData); setProjects(projectsData); setAttentionItems(attentionData); setAllTimeline(timelineData);
+        showToast(`Approved ${decisionLabel}`); closeDrawer(); return;
+      } catch { showToast('Decision could not be recorded. No mock fallback was used.'); return; }
+    }
 
     // Remove from Needs You globally
     const updatedAttentionItems = attentionItems.map(i => 
