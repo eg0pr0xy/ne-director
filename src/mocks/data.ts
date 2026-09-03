@@ -23,7 +23,7 @@ export const mockAttentionItems: AttentionItem[] = [
     remainingTime: '1h remaining',
     status: 'needs_you',
     source: { system: 'ORDO' },
-    personId: 'u4',
+    personId: 'u1',
     projectId: 'p1',
     type: 'decision',
     thumbnailUrl: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&q=80&w=300&h=200',

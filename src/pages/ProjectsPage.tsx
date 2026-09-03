@@ -5,13 +5,13 @@ import { cn } from '../utils/cn';
 import { Project } from '../types';
 
 export const ProjectsPage = () => {
-  const { projects } = useApp();
+  const { projects, attentionItems, allTimeline } = useApp();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   const selectedProject = selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null;
 
   if (selectedProject) {
-    return <ProjectDetail project={selectedProject} onBack={() => setSelectedProjectId(null)} />;
+    return <ProjectDetail project={selectedProject} attentionItems={attentionItems} timeline={allTimeline} onBack={() => setSelectedProjectId(null)} />;
   }
 
   return (
@@ -105,7 +105,9 @@ export const ProjectsPage = () => {
   );
 };
 
-const ProjectDetail: React.FC<{ project: Project; onBack: () => void }> = ({ project, onBack }) => {
+const ProjectDetail: React.FC<{ project: Project; attentionItems: import('../types').AttentionItem[]; timeline: import('../types').TimelineEvent[]; onBack: () => void }> = ({ project, attentionItems, timeline, onBack }) => {
+  const openDecisions = attentionItems.filter(item => item.projectId === project.id && item.status === 'needs_you');
+  const recentChanges = timeline.slice(0, 4);
   return (
     <div className="px-8 py-10 max-w-[1400px] mx-auto pb-32">
       <button 
@@ -152,7 +154,7 @@ const ProjectDetail: React.FC<{ project: Project; onBack: () => void }> = ({ pro
          </div>
          <div>
            <div className="text-xs text-text-muted uppercase tracking-widest mb-1">Creative</div>
-           <div className="text-sm font-medium text-text-primary">2 Open Decisions</div>
+              <div className="text-sm font-medium text-text-primary">{openDecisions.length} Open Decisions</div>
          </div>
          <div>
            <div className="text-xs text-text-muted uppercase tracking-widest mb-1">Risks</div>
@@ -166,21 +168,13 @@ const ProjectDetail: React.FC<{ project: Project; onBack: () => void }> = ({ pro
           <div className="bg-surface border border-border rounded-2xl p-6">
             <h3 className="text-sm font-semibold tracking-wider text-text-primary uppercase mb-6">Needs You</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-surface-hover p-5 rounded-xl border border-border hover:border-border-hover cursor-pointer">
-                 <div className="text-[10px] text-text-muted font-bold mb-2">01</div>
-                 <div className="text-sm text-text-primary font-medium mb-1 uppercase">Location B</div>
-                 <div className="text-xs text-[#E56A54]">Due 14:00</div>
-              </div>
-              <div className="bg-surface-hover p-5 rounded-xl border border-border hover:border-border-hover cursor-pointer">
-                 <div className="text-[10px] text-text-muted font-bold mb-2">02</div>
-                 <div className="text-sm text-text-primary font-medium mb-1 uppercase">Costume Lead</div>
-                 <div className="text-xs text-[#E56A54]">Due tomorrow</div>
-              </div>
-              <div className="bg-surface-hover p-5 rounded-xl border border-border hover:border-border-hover cursor-pointer">
-                 <div className="text-[10px] text-text-muted font-bold mb-2">03</div>
-                 <div className="text-sm text-text-primary font-medium mb-1 uppercase">Scene 42 Staging</div>
-                 <div className="text-xs text-text-muted">Before rehearsal</div>
-              </div>
+              {openDecisions.length > 0 ? openDecisions.map((item, index) => (
+                <div key={item.id} className="bg-surface-hover p-5 rounded-xl border border-border">
+                   <div className="text-[10px] text-text-muted font-bold mb-2">{String(index + 1).padStart(2, '0')}</div>
+                   <div className="text-sm text-text-primary font-medium mb-1 uppercase">{item.title}</div>
+                   <div className="text-xs text-[#E56A54]">{item.deadline ? `Due ${item.deadline}` : item.remainingTime || 'Review required'}</div>
+                </div>
+              )) : <div className="text-sm text-text-secondary md:col-span-3">No decisions currently require you.</div>}
             </div>
           </div>
 
@@ -245,7 +239,7 @@ const ProjectDetail: React.FC<{ project: Project; onBack: () => void }> = ({ pro
 
         <div className="col-span-12 xl:col-span-4 flex flex-col gap-8">
           
-          <div className="bg-[#1A1513] border border-[#E56A54]/20 rounded-2xl p-6 relative overflow-hidden">
+          <div className="bg-surface-hover border border-[#E56A54]/20 rounded-2xl p-6 relative overflow-hidden">
              <div className="absolute top-0 right-0 w-24 h-24 bg-[#E56A54]/10 blur-2xl rounded-full" />
              <div className="flex items-center gap-2 mb-4 text-[#E56A54]">
                <AlertTriangle className="w-5 h-5" />
@@ -280,22 +274,12 @@ const ProjectDetail: React.FC<{ project: Project; onBack: () => void }> = ({ pro
           <div className="bg-surface border border-border rounded-2xl p-6">
              <h3 className="text-sm font-semibold tracking-wider text-text-primary uppercase mb-6">Recent Changes</h3>
              <div className="space-y-5">
-               <div className="flex gap-4">
-                 <div className="text-sm text-text-secondary shrink-0 w-16">10:04</div>
-                 <div className="text-sm text-text-primary">Location dependency resolved</div>
-               </div>
-               <div className="flex gap-4">
-                 <div className="text-sm text-text-secondary shrink-0 w-16">09:51</div>
-                 <div className="text-sm text-text-primary">Script v27 uploaded</div>
-               </div>
-               <div className="flex gap-4">
-                 <div className="text-sm text-text-secondary shrink-0 w-16">Yesterday</div>
-                 <div className="text-sm text-text-primary">Casting callback added</div>
-               </div>
-               <div className="flex gap-4">
-                 <div className="text-sm text-text-secondary shrink-0 w-16">Yesterday</div>
-                 <div className="text-sm text-text-primary">Night shoot moved to Friday</div>
-               </div>
+               {recentChanges.map(event => (
+                 <div key={event.id} className="flex gap-4">
+                   <div className="text-sm text-text-secondary shrink-0 w-16">{event.time}</div>
+                   <div className="text-sm text-text-primary whitespace-pre-wrap">{event.description}</div>
+                 </div>
+               ))}
              </div>
           </div>
 

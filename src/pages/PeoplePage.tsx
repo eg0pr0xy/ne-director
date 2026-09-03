@@ -5,13 +5,13 @@ import { cn } from '../utils/cn';
 import { Person } from '../types';
 
 export const PeoplePage = () => {
-  const { people, projects } = useApp();
+  const { people, projects, attentionItems, allTimeline } = useApp();
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
 
   const selectedPerson = selectedPersonId ? people.find(p => p.id === selectedPersonId) : null;
 
   if (selectedPerson) {
-    return <PersonDetail person={selectedPerson} onBack={() => setSelectedPersonId(null)} />;
+    return <PersonDetail person={selectedPerson} attentionItems={attentionItems} timeline={allTimeline} onBack={() => setSelectedPersonId(null)} />;
   }
 
   return (
@@ -73,20 +73,6 @@ export const PeoplePage = () => {
                   </div>
                 )}
                 
-                {/* Specific custom states based on name */}
-                {person.name === 'Jonas Weber' && (
-                  <div className="text-sm text-text-secondary">Waiting on your Location B decision</div>
-                )}
-                {person.name === 'Lukas Kern' && (
-                  <div className="text-sm text-text-secondary">Waiting for Lens List</div>
-                )}
-                {person.name === 'Mila Hartmann' && (
-                  <div className="text-sm text-text-secondary">1 decision pending</div>
-                )}
-                {person.name === 'Lea Hoffmann' && (
-                  <div className="text-sm text-text-secondary">Callback under consideration</div>
-                )}
-
                 {person.nextInteraction && (
                   <div className="bg-border p-3 rounded-lg border border-border">
                     <div className="text-[10px] text-text-muted uppercase tracking-widest mb-1">Next Interaction</div>
@@ -102,9 +88,11 @@ export const PeoplePage = () => {
   );
 };
 
-const PersonDetail: React.FC<{ person: Person; onBack: () => void }> = ({ person, onBack }) => {
+const PersonDetail: React.FC<{ person: Person; attentionItems: import('../types').AttentionItem[]; timeline: import('../types').TimelineEvent[]; onBack: () => void }> = ({ person, attentionItems, timeline, onBack }) => {
   const { projects } = useApp();
   const project = projects.find(p => p.id === person.projectId);
+  const openItems = attentionItems.filter(item => item.personId === person.id && item.status !== 'resolved');
+  const relatedTimeline = timeline.filter(event => event.description.toLowerCase().includes(person.name.toLowerCase())).slice(0, 3);
 
   return (
     <div className="px-8 py-10 max-w-[1000px] mx-auto pb-32">
@@ -156,14 +144,12 @@ const PersonDetail: React.FC<{ person: Person; onBack: () => void }> = ({ person
           <div className="bg-surface border border-border rounded-2xl p-6">
              <h3 className="text-xs font-semibold tracking-widest text-text-muted uppercase mb-4">Open with {person.name.split(' ')[0]}</h3>
              <div className="space-y-5">
-               <div>
-                 <div className="text-sm text-text-primary uppercase font-medium mb-1">Location B</div>
-                 <div className="text-xs text-[#E56A54]">Decision requested</div>
-               </div>
-               <div>
-                 <div className="text-sm text-text-primary uppercase font-medium mb-1">Budget</div>
-                 <div className="text-xs text-text-secondary">Confirmation pending</div>
-               </div>
+               {openItems.length > 0 ? openItems.map(item => (
+                 <div key={item.id}>
+                   <div className="text-sm text-text-primary uppercase font-medium mb-1">{item.title}</div>
+                   <div className="text-xs text-[#E56A54]">{item.deadline ? `Decision requested by ${item.deadline}` : 'Decision requested'}</div>
+                 </div>
+               )) : <div className="text-sm text-text-secondary">No open decisions.</div>}
              </div>
           </div>
 
@@ -202,18 +188,12 @@ const PersonDetail: React.FC<{ person: Person; onBack: () => void }> = ({ person
           <div className="bg-surface border border-border rounded-2xl p-6">
              <h3 className="text-xs font-semibold tracking-widest text-text-muted uppercase mb-6">Recent Communication</h3>
              <div className="space-y-5">
-               <div className="flex gap-4">
-                 <div className="text-xs text-text-secondary shrink-0 w-20 pt-0.5">09:42</div>
-                 <div className="text-sm text-text-primary">Anna requested Location B decision</div>
-               </div>
-               <div className="flex gap-4">
-                 <div className="text-xs text-text-secondary shrink-0 w-20 pt-0.5">Yest. 17:20</div>
-                 <div className="text-sm text-text-primary">Budget revision sent</div>
-               </div>
-               <div className="flex gap-4">
-                 <div className="text-xs text-text-secondary shrink-0 w-20 pt-0.5">Mon 11:03</div>
-                 <div className="text-sm text-text-primary">Production meeting follow-up</div>
-               </div>
+               {relatedTimeline.length > 0 ? relatedTimeline.map(event => (
+                 <div key={event.id} className="flex gap-4">
+                   <div className="text-xs text-text-secondary shrink-0 w-20 pt-0.5">{event.time}</div>
+                   <div className="text-sm text-text-primary whitespace-pre-wrap">{event.description}</div>
+                 </div>
+               )) : <div className="text-sm text-text-secondary">No recorded communication.</div>}
              </div>
           </div>
 

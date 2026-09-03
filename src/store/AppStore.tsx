@@ -229,11 +229,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return p;
     }));
 
-    // Update People state (decrease needsYouCount)
+    // Update the associated person's open count using the same decision record.
     setPeople(people.map(p => {
       const item = attentionItems.find(a => a.id === itemId);
-      if (item && item.personId === p.id && p.needsYouCount > 0) {
-        return { ...p, needsYouCount: p.needsYouCount - 1 };
+      if (item && item.personId === p.id && (p.openItemsCount ?? 0) > 0) {
+        return { ...p, openItemsCount: (p.openItemsCount ?? 0) - 1 };
       }
       return p;
     }));
