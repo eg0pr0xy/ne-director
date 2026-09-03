@@ -1,0 +1,9 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { pool } from "../persistence/db.js";
+import { recordDecision, seedLocationB } from "../core.js";
+const env={...process.env,TMPDIR:"/tmp",DIRECTOR_PORT:"4611"};
+await pool.query("truncate director_timeline, director_open_loops, director_decisions, director_obligations, director_events cascade");
+const id=await seedLocationB(pool);await recordDecision(pool,id,"LOCATION_B");const before=(await pool.query("select e.event_id,o.id obligation_id,d.id,d.selected_option,o.status obligation_status from director_events e join director_obligations o on o.source_event_id=e.event_id join director_decisions d on d.obligation_id=o.id")).rows[0];await pool.end();
+async function start(){const p=spawn(process.execPath,["node_modules/tsx/dist/cli.mjs","backend/server.ts"],{cwd:process.cwd(),env,stdio:"inherit"});for(let i=0;i<50;i++){try{const r=await fetch("http://127.0.0.1:4611/health");if(r.ok)return p}catch{}await new Promise(r=>setTimeout(r,100))}p.kill();throw new Error("API did not become ready")}
+const one=await start();const a=await (await fetch("http://127.0.0.1:4611/api/v1/attention")).json() as any;assert.equal(a.items.length,0);one.kill("SIGTERM");await new Promise(r=>one.once("exit",r));const two=await start();const decision=await (await fetch(`http://127.0.0.1:4611/api/v1/decisions/${id}`)).json() as any;const today=await (await fetch("http://127.0.0.1:4611/api/v1/today")).json() as any;assert.equal(decision.decision.status,"DECIDED");assert.equal(decision.decision.selected_option,"LOCATION_B");assert.equal(today.needsYou.length,0);two.kill("SIGTERM");console.log(JSON.stringify({before,decision:decision.decision.id,selectedOption:decision.decision.selected_option,needsYou:today.needsYou.length}));
