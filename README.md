@@ -42,6 +42,19 @@ operator has identified the backing provider and configured approved local
 secret injection. It contains no send/reply, mailbox mutation, calendar
 mutation, AppleScript, or local client-database access path.
 
+Connections are provider-neutral and user-managed rather than singleton
+operator configuration. `GET`/`POST`/`PATCH`
+`/api/v1/ingress/connections` supports multiple named connections, for example
+private, work, and shared-production accounts. A connection owns its provider,
+non-secret configuration metadata, authorization state, health state, and the
+enabled `MAIL`, `CALENDAR`, and `CONTACTS` capabilities. Each enabled
+capability has its own SourceAccount and selection metadata for included
+mailboxes or calendars. `POST /connections/:id/authorization-intent` records
+the handoff to an approved provider authorization flow; it does not accept
+credentials. `POST /connections/:id/revoke` disables all linked source
+accounts locally. Contacts is a configurable future capability only—there is
+no Contacts ingestion or identity merge in this authority.
+
 Run the deterministic PostgreSQL proof only against a disposable database:
 
 ```bash

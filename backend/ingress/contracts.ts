@@ -1,5 +1,7 @@
-export type IngressCapability = 'COMMUNICATION' | 'SCHEDULE';
+export type IngressCapability = 'COMMUNICATION' | 'SCHEDULE' | 'CONTACTS';
+export type ConnectionCapability = 'MAIL' | 'CALENDAR' | 'CONTACTS';
 export type ConnectionState = 'CONNECTED' | 'DEGRADED' | 'AUTH_REQUIRED' | 'DISABLED' | 'UNAVAILABLE';
+export type AuthorizationState = 'NOT_CONFIGURED' | 'PENDING_OPERATOR' | 'AUTHORIZED' | 'REVOKED';
 export type IdentityResolution = 'RESOLVED' | 'UNRESOLVED' | 'AMBIGUOUS';
 
 export interface ExternalIdentity {
@@ -11,6 +13,7 @@ export interface ExternalIdentity {
 
 export interface SourceAccount {
   id: string;
+  connectionId?: string;
   provider: string;
   capability: IngressCapability;
   displayName: string;
@@ -18,6 +21,23 @@ export interface SourceAccount {
   enabled: boolean;
   connectionState: ConnectionState;
   cursorState: Record<string, unknown>;
+  selectionMetadata?: Record<string, unknown>;
+  lastAttemptAt?: string;
+  lastSuccessfulSyncAt?: string;
+  lastErrorCode?: string;
+}
+
+/** Provider-neutral Settings authority. Secrets and provider tokens never live here. */
+export interface Connection {
+  id: string;
+  displayName: string;
+  provider: string;
+  accountIdentifier: string;
+  enabled: boolean;
+  capabilities: ConnectionCapability[];
+  authorizationState: AuthorizationState;
+  connectionState: ConnectionState;
+  configurationMetadata: Record<string, unknown>;
   lastAttemptAt?: string;
   lastSuccessfulSyncAt?: string;
   lastErrorCode?: string;

@@ -57,6 +57,18 @@ unresolved external identities. Credentials are not database fields. Account
 metadata carries connection state, freshness times, error code, and cursor
 metadata only.
 
+`backend/migrations/0003_connections.sql` adds the provider-neutral,
+user-managed `director_connections` authority. A Connection has a display
+name, provider, non-secret account/configuration metadata, enabled
+`MAIL`/`CALENDAR`/`CONTACTS` capabilities, authorization state, and aggregated
+health/freshness. It owns multiple SourceAccounts, so it supports simultaneous
+connections such as a private iCloud account, Microsoft 365 work account, and
+shared Google calendar without hard-coding any provider as a singleton.
+SourceAccount selection metadata persists the explicitly included mailboxes or
+calendars. Contacts is intentionally configuration-only in this authority: a
+Contacts SourceAccount fails closed with `INGRESS_CAPABILITY_NOT_IMPLEMENTED`
+until a separately authorized Contacts ingress authority exists.
+
 `backend/ingress/service.ts` uses one transaction for normalized source fact,
 factual Event, and cursor update. A failure after source persistence rolls the
 transaction back; replay then creates one fact and one Event. Provider fetch
@@ -86,7 +98,11 @@ instead of inventing a UTC-midnight instant.
 
 The additive API surfaces are:
 
+- `GET`/`POST`/`PATCH /api/v1/ingress/connections`
+- `POST /api/v1/ingress/connections/:id/authorization-intent`
+- `POST /api/v1/ingress/connections/:id/revoke`
 - `GET /api/v1/ingress/accounts`
+- `PATCH /api/v1/ingress/accounts/:id`
 - `GET /api/v1/ingress/communications?limit=&offset=`
 - `GET /api/v1/ingress/schedule?limit=&offset=`
 - `POST /api/v1/ingress/sync` with a source-account UUID
@@ -122,6 +138,12 @@ The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
 - API returns safe `400` validation and `409` unconfigured-provider contracts;
 - account listing contains no credential value and the communication projection
   omits the stored prompt-injection fixture body;
+- Settings-facing connection proof creates three simultaneous generic
+  connections (iCloud-shaped private, Microsoft 365 work, and Google shared),
+  provisions their independent Mail/Calendar/Contacts SourceAccounts, persists
+  an included-calendar selection, records authorization intent without a
+  credential, fails closed before authorization, and locally revokes a work
+  connection plus both linked SourceAccounts;
 - two fresh API child processes read the same persisted communication and TODAY
   schedule IDs after restart.
 
@@ -133,6 +155,7 @@ and TypeScript lint also pass.
 ## Files changed
 
 - `backend/migrations/0002_ingress.sql`
+- `backend/migrations/0003_connections.sql`
 - `backend/ingress/contracts.ts`
 - `backend/ingress/providers.ts`
 - `backend/ingress/service.ts`
