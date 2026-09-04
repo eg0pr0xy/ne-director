@@ -31,11 +31,11 @@ export const ApproveConfirmModal: React.FC<ConfirmModalProps> = ({ isOpen, onClo
             </li>
             <li className="text-sm text-text-secondary flex items-start gap-2">
               <span className="text-text-muted mt-0.5">•</span>
-              <span>Prepare response to Anna</span>
+              <span>Refresh the current API-backed status</span>
             </li>
             <li className="text-sm text-text-secondary flex items-start gap-2">
               <span className="text-text-muted mt-0.5">•</span>
-              <span>Mark the production decision resolved</span>
+              <span>Show only recorded outcomes</span>
             </li>
           </ul>
         </div>

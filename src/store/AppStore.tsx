@@ -13,6 +13,7 @@ interface AppState {
   focusMode: FocusMode;
   todayState: TodayState | null;
   loading: boolean;
+  loadError: string | null;
   selectedItem: AttentionItem | null; // For context drawer
   isDrawerOpen: boolean;
   toastMessage: string | null;
@@ -42,7 +43,7 @@ interface AppState {
   closeDrawer: () => void;
   showToast: (msg: string) => void;
   hideToast: () => void;
-  approveDecision: (itemId: string, decisionLabel: string) => void;
+  approveDecision: (itemId: string, decisionLabel: string) => Promise<void>;
   getPerson: (id: string) => Person | undefined;
   getProject: (id: string) => Project | undefined;
 }
@@ -54,6 +55,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [focusMode, setFocusMode] = useState<FocusMode>('NORMAL');
   const [todayState, setTodayState] = useState<TodayState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   
   const [selectedItem, setSelectedItem] = useState<AttentionItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -139,19 +141,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const data = await apiService.getToday();
-      const peopleData = await apiService.getPeople();
-      const projectsData = await apiService.getProjects();
-      const attentionData = await apiService.getAttention();
-      const timelineData = await apiService.getTimeline();
-      
-      setTodayState(data);
-      setPeople(peopleData);
-      setProjects(projectsData);
-      setAttentionItems(attentionData);
-      setAllTimeline(timelineData);
-      
-      setLoading(false);
+      setLoadError(null);
+      try {
+        const [data, peopleData, projectsData, attentionData, timelineData] = await Promise.all([apiService.getToday(), apiService.getPeople(), apiService.getProjects(), apiService.getAttention(), apiService.getTimeline()]);
+        setTodayState(data); setPeople(peopleData); setProjects(projectsData); setAttentionItems(attentionData); setAllTimeline(timelineData);
+      } catch {
+        setLoadError('Director API unavailable. No mock data is being shown.');
+      } finally { setLoading(false); }
     };
     loadData();
   }, []);
@@ -174,8 +170,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const hideToast = () => setToastMessage(null);
 
-  const approveDecision = (itemId: string, decisionLabel: string) => {
+  const approveDecision = async (itemId: string, decisionLabel: string) => {
     if (!todayState) return;
+    if (import.meta.env.VITE_DIRECTOR_RUNTIME_MODE === 'api') {
+      try {
+        await apiService.recordDecision(itemId, 'LOCATION_B');
+        const [data, peopleData, projectsData, attentionData, timelineData] = await Promise.all([apiService.getToday(), apiService.getPeople(), apiService.getProjects(), apiService.getAttention(), apiService.getTimeline()]);
+        setTodayState(data); setPeople(peopleData); setProjects(projectsData); setAttentionItems(attentionData); setAllTimeline(timelineData);
+        showToast(`Approved ${decisionLabel}`); closeDrawer(); return;
+      } catch { showToast('Decision could not be recorded. No mock fallback was used.'); return; }
+    }
 
     // Remove from Needs You globally
     const updatedAttentionItems = attentionItems.map(i => 
@@ -256,7 +260,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <AppContext.Provider value={{
       currentPage, setCurrentPage,
       focusMode, setFocusMode,
-      todayState, loading,
+      todayState, loading, loadError,
       selectedItem, isDrawerOpen, openDrawer, closeDrawer,
       toastMessage, showToast, hideToast,
       profile, updateProfile, resetProfile,
