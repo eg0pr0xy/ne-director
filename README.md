@@ -26,6 +26,32 @@ TMPDIR=/tmp npm run core:dev
 
 Set `VITE_DIRECTOR_RUNTIME_MODE=api` and `VITE_DIRECTOR_API_BASE_URL=http://127.0.0.1:4600/api/v1` to use the API service seam. `mock` remains explicit; API failure does not fall back to mock data.
 
+## Communication and schedule ingress
+
+`NE_DIRECTOR_COMMUNICATION_AND_SCHEDULE_INGRESS_AUTHORITY_001` adds a
+provider-neutral, read-only perception boundary. It persists normalized
+communication and schedule source facts, preserves external identities as
+unresolved unless explicitly mapped, emits only factual Director Events, and
+projects active schedule observations into `GET /api/v1/today`.
+
+The service exposes `GET /api/v1/ingress/accounts`,
+`GET /api/v1/ingress/communications`, `GET /api/v1/ingress/schedule`, and
+`POST /api/v1/ingress/sync`. Sync writes local evidence only. Normal server
+composition intentionally has no external provider registered until an
+operator has identified the backing provider and configured approved local
+secret injection. It contains no send/reply, mailbox mutation, calendar
+mutation, AppleScript, or local client-database access path.
+
+Run the deterministic PostgreSQL proof only against a disposable database:
+
+```bash
+TMPDIR=/tmp DIRECTOR_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/DATABASE' npm run core:migrate
+TMPDIR=/tmp DIRECTOR_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/DATABASE' npm run ingress:proof
+```
+
+The placeholders above are deliberately non-secret. Do not paste provider
+credentials into source control, `.env.example`, reports, or chat.
+
 ## Architecture
 
 This project is a React-based frontend prototype for the NE Director Chief of Staff application.

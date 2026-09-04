@@ -8,6 +8,7 @@
     "core:dev": "tsx backend/server.ts",
     "core:migrate": "tsx backend/persistence/migrate.ts",
     "core:test": "tsx --test backend/tests/**/*.test.ts",
+    "ingress:proof": "tsx backend/scripts/ingress-proof.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
