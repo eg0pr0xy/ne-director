@@ -121,7 +121,9 @@ The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
   becomes `DEGRADED`, with records retained;
 - API returns safe `400` validation and `409` unconfigured-provider contracts;
 - account listing contains no credential value and the communication projection
-  omits the stored prompt-injection fixture body.
+  omits the stored prompt-injection fixture body;
+- two fresh API child processes read the same persisted communication and TODAY
+  schedule IDs after restart.
 
 Core regression was rerun against the same disposable PostgreSQL authority:
 Core idempotency/concurrency proof, rollback proof, and API process restart

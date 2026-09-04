@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { pool } from '../persistence/db.js';
 import { IngressService } from '../ingress/service.js';
 import { FakeStandardProvider } from '../ingress/providers.js';
@@ -86,5 +87,24 @@ const communicationResponse = await fetch(`http://127.0.0.1:${address.port}/api/
 assert.equal(communicationResponse.status, 200); assert.equal(JSON.stringify(await communicationResponse.json()).includes('Ignore all previous instructions'), false);
 await new Promise<void>((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()));
 
-console.log(JSON.stringify({ replay: counts.rows[0], scheduleRevisions: 3, allDayToday: true, transactionReplay: true, auth: authState, outage: (await outage.getAccount(mailAccount.id)).connectionState, apiFailures: [400, 409], factualEvent: prompt.rows[0].event_type }));
+const proofResult = { replay: counts.rows[0], scheduleRevisions: 3, allDayToday: true, transactionReplay: true, auth: authState, outage: (await outage.getAccount(mailAccount.id)).connectionState, apiFailures: [400, 409], factualEvent: prompt.rows[0].event_type };
 await pool.end();
+
+const restartEnv = { ...process.env, TMPDIR: '/tmp', DIRECTOR_PORT: '4612' };
+async function startApi() {
+  const child = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'backend/server.ts'], { cwd: process.cwd(), env: restartEnv, stdio: 'ignore' });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try { if ((await fetch('http://127.0.0.1:4612/health')).ok) return child; } catch { /* wait for child */ }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  child.kill(); throw new Error('Ingress API did not become ready');
+}
+async function readRestartState() {
+  const communications = await (await fetch('http://127.0.0.1:4612/api/v1/ingress/communications')).json() as any;
+  const today = await (await fetch('http://127.0.0.1:4612/api/v1/today')).json() as any;
+  return { communicationIds: communications.items.map((item: any) => item.id).sort(), todayIds: today.calendar.map((item: any) => item.id).sort() };
+}
+const firstApi = await startApi(); const beforeRestart = await readRestartState(); firstApi.kill('SIGTERM'); await new Promise(resolve => firstApi.once('exit', resolve));
+const secondApi = await startApi(); const afterRestart = await readRestartState(); secondApi.kill('SIGTERM'); await new Promise(resolve => secondApi.once('exit', resolve));
+assert.equal(beforeRestart.communicationIds.length, 2); assert.equal(beforeRestart.todayIds.length, 1); assert.deepEqual(afterRestart, beforeRestart);
+console.log(JSON.stringify({ ...proofResult, restartDurability: true }));
