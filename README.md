@@ -50,8 +50,9 @@ non-secret configuration metadata, authorization state, health state, and the
 enabled `MAIL`, `CALENDAR`, and `CONTACTS` capabilities. Each enabled
 capability has its own SourceAccount and selection metadata for included
 mailboxes or calendars. `POST /connections/:id/authorization-intent` records
-the handoff to an approved provider authorization flow; it does not accept
-credentials. `POST /connections/:id/revoke` disables all linked source
+the start of an approved provider authorization flow; it does not accept
+credentials and returns `PROVIDER_ADAPTER_NOT_IMPLEMENTED` until a verified
+adapter exists. `POST /connections/:id/revoke` disables all linked source
 accounts locally. Contacts is a configurable future capability only—there is
 no Contacts ingestion or identity merge in this authority.
 

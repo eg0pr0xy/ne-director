@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { CoreError } from '../core.js';
 import type { AuthorizationState, CommunicationIngressProvider, Connection, ConnectionCapability, ConnectionState, ExternalIdentity, InboundCommunication, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
+import { providerById } from './provider-registry.js';
 
 type ProviderRegistry = { communication: Map<string, CommunicationIngressProvider>; schedule: Map<string, ScheduleIngressProvider> };
 type Hooks = { afterSourceRecordPersisted?: () => void };
@@ -17,6 +18,7 @@ export class IngressService {
   constructor(private readonly db: Pool, private readonly providers: ProviderRegistry, private readonly hooks: Hooks = {}) {}
 
   async createConnection(input: Omit<Connection, 'id' | 'authorizationState' | 'connectionState'> & { authorizationState?: AuthorizationState; connectionState?: ConnectionState }) {
+    if (!providerById(input.provider)) throw new CoreError('INGRESS_PROVIDER_UNKNOWN', 422, 'Provider is not registered');
     const id = randomUUID();
     await this.db.query('insert into director_connections(id,display_name,provider,account_identifier,enabled,capabilities,authorization_state,connection_state,configuration_metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9)', [id, input.displayName, input.provider, input.accountIdentifier, input.enabled, json(input.capabilities), input.authorizationState ?? 'NOT_CONFIGURED', input.connectionState ?? 'UNAVAILABLE', json(input.configurationMetadata ?? {})]);
     return this.getConnection(id);
@@ -52,9 +54,9 @@ export class IngressService {
 
   /** Records an operator authorization handoff; provider implementations perform the actual authorization later. */
   async requestAuthorization(id: string) {
-    await this.getConnection(id);
-    await this.db.query("update director_connections set authorization_state='PENDING_OPERATOR',connection_state='AUTH_REQUIRED',last_attempt_at=now(),last_error_code='AUTHORIZATION_PENDING',updated_at=now() where id=$1 and enabled=true", [id]);
-    return this.getConnection(id);
+    const connection = await this.getConnection(id);
+    if (!connection.enabled) throw new CoreError('INGRESS_DISABLED', 409, 'Connection is disabled');
+    throw new CoreError('PROVIDER_ADAPTER_NOT_IMPLEMENTED', 409, 'Provider authorization is not implemented');
   }
 
   /** Provider callback/composition seam: only a verified provider flow may mark authorization complete. */

@@ -3,6 +3,7 @@ import { useApp } from '../store/AppStore';
 import { ThemeAppearance, InterfaceDensity, ProactivityLevel, AttentionLevel, AutonomyPermission } from '../types/settings';
 import { cn } from '../utils/cn';
 import { MemoryItemCard, MemoryItemData } from '../components/MemoryItemCard';
+import { connectionApi, connectionApiEnabled, ConnectionCapability, ConnectionSourceAccount, DirectorConnection, ProviderOption } from '../services/connections';
 
 const INITIAL_MEMORY_ITEMS: MemoryItemData[] = [
   {
@@ -68,7 +69,7 @@ const CATEGORIES = [
   { id: 'focusModes', label: 'Focus Modes', section: 'CHIEF OF STAFF' },
   { id: 'projects', label: 'Projects', section: 'WORK' },
   { id: 'people', label: 'People', section: 'WORK' },
-  { id: 'services', label: 'Connected Services', section: 'WORK' },
+  { id: 'connections', label: 'Connections', section: 'WORK' },
   { id: 'memory', label: 'Memory', section: 'TRUST' },
   { id: 'privacy', label: 'Privacy', section: 'TRUST' },
   { id: 'notifications', label: 'Notifications', section: 'TRUST' },
@@ -724,41 +725,8 @@ const SettingsContent = ({ activeCategory, settings, updateSettings, projects, p
         </div>
       );
 
-    case 'services':
-      return (
-        <div className="space-y-6 animate-in fade-in duration-300">
-          <header className="mb-8">
-            <h2 className="text-xl font-medium text-text-primary mb-2">Connected Services</h2>
-          </header>
-          
-          {[
-            { id: 'ORDO', sub: 'Production logistics platform', status: 'Prototype source' },
-            { id: 'NARRATE', sub: 'Creative knowledge base', status: 'Prototype source' },
-            { id: 'MNEME', sub: 'Archival and references', status: 'Prototype source' },
-            { id: 'EMAIL', sub: 'Communication', status: 'Not connected', btn: true },
-            { id: 'CALENDAR', sub: 'Scheduling', status: 'Not connected', btn: true },
-            { id: 'PRESENCE', sub: 'Real-time state', status: 'Not connected', btn: true },
-            { id: 'IMPERIUM MENTIS', sub: 'Strategic decision engine', status: 'Not connected', btn: true },
-          ].map(s => (
-            <div key={s.id} className="flex items-center justify-between p-4 bg-surface rounded-xl border border-border">
-               <div>
-                 <div className="text-sm font-medium text-text-primary mb-1 uppercase">{s.id}</div>
-                 <div className="text-xs text-text-secondary">{s.sub}</div>
-               </div>
-               {s.btn ? (
-                 <div className="flex items-center gap-4">
-                   <div className="text-xs text-text-muted uppercase tracking-wider">{s.status}</div>
-                   <button className="px-3 py-1.5 bg-border hover:bg-border-hover text-text-primary text-xs rounded transition-colors font-medium">Connect</button>
-                 </div>
-               ) : (
-                 <div className="px-3 py-1 bg-green-500/10 text-green-500 text-xs rounded uppercase font-bold tracking-wider">
-                   {s.status}
-                 </div>
-               )}
-            </div>
-          ))}
-        </div>
-      );
+    case 'connections':
+      return <ConnectionsSettingsSection />;
 
     default:
       return (
@@ -768,6 +736,80 @@ const SettingsContent = ({ activeCategory, settings, updateSettings, projects, p
       );
   }
 };
+
+const stateClass = (state: string) => state === 'CONNECTED' ? 'bg-green-500/10 text-green-500' : state === 'DEGRADED' || state === 'AUTH_REQUIRED' ? 'bg-amber-500/10 text-amber-600' : state === 'DISABLED' || state === 'REVOKED' ? 'bg-[#E56A54]/10 text-[#E56A54]' : 'bg-border text-text-secondary';
+const sourceLabel = (capability: string) => capability === 'COMMUNICATION' ? 'Mail' : capability === 'SCHEDULE' ? 'Calendar' : 'Contacts';
+
+const ConnectionsSettingsSection = () => {
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [connections, setConnections] = useState<DirectorConnection[]>([]);
+  const [accounts, setAccounts] = useState<ConnectionSourceAccount[]>([]);
+  const [loading, setLoading] = useState(connectionApiEnabled);
+  const [error, setError] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [accountIdentifier, setAccountIdentifier] = useState('');
+  const [providerId, setProviderId] = useState('ICLOUD');
+  const [capabilities, setCapabilities] = useState<ConnectionCapability[]>(['MAIL', 'CALENDAR']);
+  const [mailboxes, setMailboxes] = useState<string[]>(['INBOX']);
+  const [calendars, setCalendars] = useState<string[]>(['primary']);
+
+  const refresh = async () => {
+    if (!connectionApiEnabled) return;
+    setLoading(true);
+    try {
+      const [providerItems, connectionItems, accountItems] = await Promise.all([connectionApi.providers(), connectionApi.connections(), connectionApi.accounts()]);
+      setProviders(providerItems); setConnections(connectionItems); setAccounts(accountItems); setError(null);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'CONNECTIONS_UNAVAILABLE'); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { void refresh(); }, []);
+  const selectedProvider = providers.find(provider => provider.id === providerId);
+  const toggleCapability = (capability: ConnectionCapability) => {
+    if (capability === 'CONTACTS') return;
+    setCapabilities(previous => previous.includes(capability) ? previous.filter(item => item !== capability) : [...previous, capability]);
+  };
+  const toggleSelection = (value: string, current: string[], setCurrent: (value: string[]) => void) => setCurrent(current.includes(value) ? current.filter(item => item !== value) : [...current, value]);
+  const addConnection = async () => {
+    if (!displayName.trim() || !accountIdentifier.trim() || !capabilities.length) return;
+    try {
+      await connectionApi.create({ displayName: displayName.trim(), provider: providerId, accountIdentifier: accountIdentifier.trim(), capabilities, selectionMetadata: { includedMailboxes: capabilities.includes('MAIL') ? mailboxes : [], includedCalendars: capabilities.includes('CALENDAR') ? calendars : [] } });
+      setShowAdd(false); setDisplayName(''); setAccountIdentifier(''); await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'CONNECTION_CREATE_FAILED'); }
+  };
+  const run = async (operation: () => Promise<unknown>) => { try { await operation(); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'CONNECTION_ACTION_FAILED'); } };
+
+  if (!connectionApiEnabled) return <div className="space-y-4 animate-in fade-in duration-300"><h2 className="text-xl font-medium text-text-primary">Connections</h2><div className="border border-dashed border-border rounded-2xl p-6 text-sm text-text-secondary">Connections require API runtime mode. Mock mode intentionally has no connection authority or simulated provider state.</div></div>;
+
+  return <div className="space-y-6 animate-in fade-in duration-300">
+    <header className="flex items-start justify-between gap-6">
+      <div><h2 className="text-xl font-medium text-text-primary mb-2">Connections</h2><p className="text-sm text-text-secondary">Provider connections are read-only ingress configuration. Authorization and health come from the API.</p></div>
+      <button onClick={() => setShowAdd(true)} className="px-3 py-2 bg-bg-inverted text-text-inverted text-xs rounded font-medium shrink-0">Add connection</button>
+    </header>
+    {error && <div className="border border-[#E56A54]/30 bg-[#E56A54]/10 text-[#E56A54] p-3 rounded-lg text-xs flex justify-between gap-3"><span>{error}</span><button onClick={() => setError(null)}>Dismiss</button></div>}
+    {showAdd && <section className="p-5 border border-border rounded-2xl bg-surface space-y-5">
+      <div className="flex justify-between"><div><h3 className="text-sm font-medium text-text-primary">Add connection</h3><p className="text-xs text-text-secondary mt-1">Provider choice is yours. No password, token, or app-specific password is entered here.</p></div><button onClick={() => setShowAdd(false)} className="text-xs text-text-muted">Cancel</button></div>
+      <div className="grid sm:grid-cols-2 gap-4"><label className="text-xs text-text-secondary">Display name<input value={displayName} onChange={event => setDisplayName(event.target.value)} placeholder="Marcus Private" className="mt-1 w-full bg-bg border border-border rounded px-3 py-2 text-sm text-text-primary" /></label><label className="text-xs text-text-secondary">Account identifier<input value={accountIdentifier} onChange={event => setAccountIdentifier(event.target.value)} placeholder="name@example.com" className="mt-1 w-full bg-bg border border-border rounded px-3 py-2 text-sm text-text-primary" /></label></div>
+      <label className="text-xs text-text-secondary block">Provider<select value={providerId} onChange={event => setProviderId(event.target.value)} className="mt-1 w-full bg-bg border border-border rounded px-3 py-2 text-sm text-text-primary">{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.displayName} — adapter unavailable</option>)}</select></label>
+      {selectedProvider && <p className="text-xs text-amber-600 bg-amber-500/10 rounded p-3">{selectedProvider.detail} The connection will remain unconfigured until a verified adapter is added.</p>}
+      <div><div className="text-xs text-text-secondary mb-2">Capabilities</div><div className="flex flex-wrap gap-2">{(['MAIL', 'CALENDAR'] as ConnectionCapability[]).map(capability => <button key={capability} onClick={() => toggleCapability(capability)} className={cn('px-3 py-2 border rounded text-xs', capabilities.includes(capability) ? 'bg-bg-inverted text-text-inverted border-bg-inverted' : 'border-border text-text-secondary')}>{capability === 'MAIL' ? 'Mail' : 'Calendar'}</button>)}<span className="px-3 py-2 border border-border rounded text-xs text-text-muted">Contacts — coming later</span></div></div>
+      {capabilities.includes('MAIL') && <SelectionRow label="Included mailboxes (planned defaults; verify after provider discovery)" values={['INBOX', 'Archive', 'Sent']} selected={mailboxes} onToggle={value => toggleSelection(value, mailboxes, setMailboxes)} />}
+      {capabilities.includes('CALENDAR') && <SelectionRow label="Included calendars (planned defaults; verify after provider discovery)" values={['primary', 'Private', 'Birthdays']} selected={calendars} onToggle={value => toggleSelection(value, calendars, setCalendars)} />}
+      <button disabled={!displayName.trim() || !accountIdentifier.trim() || !capabilities.length} onClick={() => void addConnection()} className="px-3 py-2 bg-border hover:bg-border-hover disabled:opacity-50 text-text-primary text-xs rounded font-medium">Save unavailable configuration</button>
+    </section>}
+    {loading ? <div className="text-sm text-text-muted">Loading connections…</div> : connections.length === 0 ? <div className="border border-dashed border-border rounded-2xl p-8 text-center"><div className="text-sm text-text-primary">No connections configured</div><p className="text-xs text-text-secondary mt-2">Add a provider configuration to begin a verified authorization flow when its adapter is available.</p></div> : <div className="space-y-4">{connections.map(connection => {
+      const sourceAccounts = accounts.filter(account => account.connectionId === connection.id);
+      return <article key={connection.id} className="p-5 border border-border rounded-2xl bg-surface space-y-4"><div className="flex items-start justify-between gap-4"><div><h3 className="text-sm font-medium text-text-primary">{connection.displayName}</h3><p className="text-xs text-text-secondary mt-1">{connection.provider} · {connection.accountIdentifier}</p></div><div className="text-right space-y-1"><span className={cn('inline-block px-2 py-1 rounded text-[10px] font-bold tracking-wider', stateClass(connection.connectionState))}>{connection.connectionState}</span><div className="text-[10px] text-text-muted">{connection.authorizationState}</div></div></div>
+        <div className="grid sm:grid-cols-2 gap-3 text-xs"><div><span className="text-text-muted">Capabilities</span><div className="mt-1 text-text-primary">{connection.capabilities.join(' · ')}</div></div><div><span className="text-text-muted">Last successful sync</span><div className="mt-1 text-text-primary">{connection.lastSuccessfulSyncAt ? new Date(connection.lastSuccessfulSyncAt).toLocaleString() : 'Not yet synced'}</div></div>{connection.lastErrorCode && <div className="sm:col-span-2"><span className="text-text-muted">Safe last error</span><div className="mt-1 text-[#E56A54]">{connection.lastErrorCode}</div></div>}</div>
+        <div className="space-y-2">{sourceAccounts.map(account => <div key={account.id} className="flex items-center justify-between gap-4 border-t border-border pt-3 text-xs"><div><span className="font-medium text-text-primary">{sourceLabel(account.capability)}</span><span className="text-text-secondary"> · {JSON.stringify(account.selectionMetadata ?? {})}</span></div><span className={cn('px-2 py-1 rounded text-[10px]', stateClass(account.connectionState))}>{account.enabled ? account.connectionState : 'DISABLED'}</span></div>)}</div>
+        <div className="flex flex-wrap gap-2 pt-1"><button onClick={() => void run(async () => { await Promise.all(sourceAccounts.filter(account => account.enabled).map(account => connectionApi.sync(account.id))); })} className="px-3 py-1.5 border border-border rounded text-xs text-text-primary">Sync now</button><button onClick={() => void run(() => connectionApi.authorizationIntent(connection.id))} className="px-3 py-1.5 border border-border rounded text-xs text-text-primary">Authorize</button><button onClick={() => void run(() => connectionApi.updateConnection(connection.id, { enabled: !connection.enabled }))} className="px-3 py-1.5 border border-border rounded text-xs text-text-primary">{connection.enabled ? 'Disable' : 'Enable'}</button><button onClick={() => void run(() => connectionApi.revoke(connection.id))} className="px-3 py-1.5 border border-[#E56A54]/30 text-[#E56A54] rounded text-xs">Revoke locally</button></div>
+      </article>;
+    })}</div>}
+  </div>;
+};
+
+const SelectionRow = ({ label, values, selected, onToggle }: { label: string; values: string[]; selected: string[]; onToggle: (value: string) => void }) => <div><div className="text-xs text-text-secondary mb-2">{label}</div><div className="flex flex-wrap gap-3">{values.map(value => <label key={value} className="text-xs text-text-primary flex items-center gap-1.5"><input type="checkbox" checked={selected.includes(value)} onChange={() => onToggle(value)} />{value}</label>)}</div></div>;
 
 const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (c: boolean) => void }) => (
   <button

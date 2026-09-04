@@ -69,6 +69,20 @@ calendars. Contacts is intentionally configuration-only in this authority: a
 Contacts SourceAccount fails closed with `INGRESS_CAPABILITY_NOT_IMPLEMENTED`
 until a separately authorized Contacts ingress authority exists.
 
+Settings now contains an API-runtime-only **Connections** surface. It loads
+Connection, SourceAccount, and provider-registry truth from PostgreSQL/API on
+each page load; mock mode deliberately displays no simulated connection state.
+The Add Connection form draws its choices from the backend provider registry,
+not scattered React conditionals. Apple/iCloud, Google, Microsoft 365, and
+Other are currently visible as explicitly unavailable configurations:
+`PROVIDER_ADAPTER_NOT_IMPLEMENTED` is returned for authorization intent until
+a verified provider transport and callback flow exist. The UI never marks a
+connection authorized itself, never retains secrets in frontend state or local
+storage, and displays only safe account metadata, selections, freshness, and
+safe error codes. Inbox/primary-calendar choices are labelled planned defaults;
+real mailbox/calendar inventory remains provider discovery after verified
+authorization, never a React-invented claim of available remote resources.
+
 `backend/ingress/service.ts` uses one transaction for normalized source fact,
 factual Event, and cursor update. A failure after source persistence rolls the
 transaction back; replay then creates one fact and one Event. Provider fetch
@@ -115,11 +129,12 @@ cancelled or removed revisions remain historical but are excluded.
 
 ## Evidence
 
-The conventional Node discovery suite passed **7/7** focused contract tests:
+The conventional Node discovery suite passed **9/9** focused contract tests:
 peek-only mail behavior and unread fixture, bounded cursor/backfill identity,
 prompt-injection inertness, allowlisted read-only calendar discovery, all-day /
 recurrence override facts, timezone/DST preservation, and a second provider
-contract.
+contract, plus two provider-registry tests proving Settings choices are
+centralized and adapter availability is explicit.
 
 The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
 
@@ -141,11 +156,19 @@ The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
 - Settings-facing connection proof creates three simultaneous generic
   connections (iCloud-shaped private, Microsoft 365 work, and Google shared),
   provisions their independent Mail/Calendar/Contacts SourceAccounts, persists
-  an included-calendar selection, records authorization intent without a
-  credential, fails closed before authorization, and locally revokes a work
+  an included-calendar selection, attempts authorization intent without a
+  credential, receives `PROVIDER_ADAPTER_NOT_IMPLEMENTED` before authorization,
+  and locally revokes a work
   connection plus both linked SourceAccounts;
 - two fresh API child processes read the same persisted communication and TODAY
   schedule IDs after restart.
+
+The PostgreSQL proof additionally covers three simultaneous configured connections,
+independent selections, read-only provider-scoped health aggregation,
+authorization failure, local revoke, and the guarantee that degradation of one
+connection leaves another connected connection healthy. It asserts that the
+Connections API response contains no password, token, secret, or app-specific
+password field/value.
 
 Core regression was rerun against the same disposable PostgreSQL authority:
 Core idempotency/concurrency proof, rollback proof, and API process restart
@@ -157,12 +180,14 @@ and TypeScript lint also pass.
 - `backend/migrations/0002_ingress.sql`
 - `backend/migrations/0003_connections.sql`
 - `backend/ingress/contracts.ts`
+- `backend/ingress/provider-registry.ts`
 - `backend/ingress/providers.ts`
 - `backend/ingress/service.ts`
 - `backend/server.ts`
 - `backend/scripts/ingress-proof.ts`
 - `backend/tests/ingress.contract.test.ts`
-- `src/services/api.ts`
+- `backend/tests/provider-registry.test.ts`
+- `src/services/api.ts`, `src/services/connections.ts`, `src/pages/SettingsPage.tsx`
 - `package.json`, `README.md`, `.env.example`
 
 ## Remaining gap and next authorized slice
@@ -172,7 +197,10 @@ calendar providers and configure their documented local secret/authorization
 flow without placing credentials in chat, Git, reports, logs, or `.env.example`.
 Then real-provider acceptance must prove controlled read, non-mutation,
 replay/restart, update/cancellation, recurrence, and outage/recovery. No iCloud
-parity is claimed until that evidence exists.
+parity is claimed until that evidence exists. The Connections surface is
+compiled and API-proven, but browser-render/reload acceptance remains to be
+performed with the configured real-provider path; it is not substituted by the
+backend restart proof.
 
 After real-provider acceptance succeeds, the next authorized authority is
 `NE_DIRECTOR_INGRESS_INTERPRETATION_AND_ATTENTION_AUTHORITY_001`.
