@@ -2,9 +2,11 @@
 
 ## 1. Verdict
 
-`NE_DIRECTOR_CORE_PR_MERGE_AND_FREEZE_GATE_001_PROVEN`
+`NE_DIRECTOR_CORE_PR_MERGE_AND_FREEZE_GATE_001_PARTIAL`
 
-The exact source branch is merge-ready after one explicit merge-blocker repair: removal of two package scripts whose target files did not exist. No operational-core behavior changed in that repair. Remote PR/merge/tag completion is recorded separately after the report is pushed and self-audited.
+`MERGE_READY = YES`; `REMOTE_INTEGRATION = BLOCKED_BY_AUTH`.
+
+The exact source branch is merge-ready after one explicit merge-blocker repair: removal of two package scripts whose target files did not exist. No operational-core behavior changed in that repair. GitHub CLI is unavailable on this host and `git push origin director/core-operational-model-001` cannot obtain HTTPS credentials, so no remote PR, merge, or freeze tag can be claimed.
 
 ## 2. Source/target SHAs
 
@@ -118,6 +120,10 @@ Use a normal merge commit, preserving the meaningful proof history. Do not squas
 ## 20. Freeze/tag plan
 
 After PR self-audit and normal merge, verify fresh `origin/main` with clean install/lint/build and source-history presence. Then create the annotated tag `NE_DIRECTOR_CORE_OPERATIONAL_MODEL_AND_API_AUTHORITY_001_PROVEN` on the verified main merge commit, message: `NE Director persistent operational core proven and frozen`. Push and resolve the remote tag to that same main SHA. Retain the source branch unless later cleanup is explicitly desired.
+
+## Remote integration status
+
+No PR exists, no merge commit exists, and no freeze tag exists. The source branch remains locally auditable and merge-ready, but all remote integration is blocked by absent GitHub authentication on this host.
 
 ## Next authorized slice
 
