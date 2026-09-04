@@ -5,10 +5,12 @@
 `NE_DIRECTOR_COMMUNICATION_AND_SCHEDULE_INGRESS_AUTHORITY_001_PARTIAL`
 
 The additive, provider-neutral, read-only ingress authority and its
-deterministic PostgreSQL proof are complete. The actual backing mail and
-calendar providers are `UNKNOWN`: no approved local provider configuration or
-secret reference was available for inspection. Therefore no real external read,
-unread-state proof, calendar read, or real restart/outage recovery is claimed.
+deterministic PostgreSQL proof are complete. Provider 001 is now explicitly
+`GOOGLE`: Gmail and Google Calendar have read-only adapters and a Google OAuth
+2.0 Authorization Code + PKCE handoff. No approved local Google OAuth client or
+refresh-token secret reference was available for inspection. Therefore no real
+external read, unread-state proof, calendar read, or real restart/outage
+recovery is claimed.
 
 ## Frozen prerequisite and branch
 
@@ -21,9 +23,9 @@ unread-state proof, calendar read, or real restart/outage recovery is claimed.
 ## Provider discovery and protocol decision
 
 Apple Mail and Apple Calendar are clients, not evidence of a backing provider.
-Available non-secret configuration evidence did not identify an account,
-provider, or authorization reference, so both provider classifications remain
-`UNKNOWN`; iCloud is not asserted as the active Provider 001.
+The user selected `GOOGLE` as Provider 001. No account identifier, approved
+OAuth client configuration, or refresh-token secret reference was available for
+inspection. iCloud is not asserted as the active Provider 001.
 
 The optional iCloud-shaped adapters are contract implementations, not a claim
 of real iCloud access. Apple documents iCloud Mail IMAP at
@@ -73,15 +75,25 @@ Settings now contains an API-runtime-only **Connections** surface. It loads
 Connection, SourceAccount, and provider-registry truth from PostgreSQL/API on
 each page load; mock mode deliberately displays no simulated connection state.
 The Add Connection form draws its choices from the backend provider registry,
-not scattered React conditionals. Apple/iCloud, Google, Microsoft 365, and
-Other are currently visible as explicitly unavailable configurations:
-`PROVIDER_ADAPTER_NOT_IMPLEMENTED` is returned for authorization intent until
-a verified provider transport and callback flow exist. The UI never marks a
-connection authorized itself, never retains secrets in frontend state or local
-storage, and displays only safe account metadata, selections, freshness, and
-safe error codes. Inbox/primary-calendar choices are labelled planned defaults;
-real mailbox/calendar inventory remains provider discovery after verified
+not scattered React conditionals. Google is marked `AVAILABLE` for Mail and
+Calendar with `OAUTH_2_AUTHORIZATION_CODE_PKCE`; iCloud, Microsoft 365, and
+Other remain explicitly unavailable. The Google handoff URL requests only
+Gmail read-only and Calendar read-only scopes. The UI never marks a connection
+authorized itself, never retains secrets in frontend state or local storage,
+and displays only safe account metadata, selections, freshness, and safe error
+codes. Inbox/primary-calendar choices are labelled planned defaults; real
+mailbox/calendar inventory remains provider discovery after verified
 authorization, never a React-invented claim of available remote resources.
+
+`backend/ingress/google.ts` implements bounded Gmail discovery using the
+`is:unread` query and explicit mailbox labels, then reads message details by
+Google message ID. It imports stable message/thread/history identities, RFC
+headers, plain-text body data, and attachment metadata only; it has no Gmail
+send, modify, trash, delete, move, or label mutation path. Calendar sync first
+discovers the user's calendars, reads only selected calendar IDs, retains
+calendar/event/iCalUID/recurrence-instance identities and provider revisions,
+and stores per-calendar sync tokens. Recurrence masters, overrides, all-day
+dates, cancellation facts, and source timezone values remain provider facts.
 
 `backend/ingress/service.ts` uses one transaction for normalized source fact,
 factual Event, and cursor update. A failure after source persistence rolls the
@@ -122,19 +134,23 @@ The additive API surfaces are:
 - `POST /api/v1/ingress/sync` with a source-account UUID
 
 Sync mutates local Director evidence only. Normal server composition registers
-no external provider until discovery and authorization are complete. The API
-does not return credentials or stored normalized mail bodies. `GET /api/v1/today` now derives `calendar` from
+the Google read-only adapters but fails closed until its local secret authority
+can refresh an access token. The API does not return credentials or stored
+normalized mail bodies. `GET /api/v1/today` now derives `calendar` from
 active current schedule source records, retaining all-day local-date semantics;
 cancelled or removed revisions remain historical but are excluded.
 
 ## Evidence
 
-The conventional Node discovery suite passed **9/9** focused contract tests:
+The conventional Node discovery suite passed **11/11** focused contract tests:
 peek-only mail behavior and unread fixture, bounded cursor/backfill identity,
 prompt-injection inertness, allowlisted read-only calendar discovery, all-day /
-recurrence override facts, timezone/DST preservation, and a second provider
-contract, plus two provider-registry tests proving Settings choices are
-centralized and adapter availability is explicit.
+recurrence override facts, timezone/DST preservation, a second provider
+contract, two provider-registry tests proving Settings choices are centralized
+and adapter availability is explicit, plus deterministic Gmail and Google
+Calendar adapter tests proving only read endpoints are called and that Gmail
+unread facts, Google message/thread/history identifiers, recurrence overrides,
+cancellation, all-day dates, and per-calendar sync tokens are retained.
 
 The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
 
@@ -181,26 +197,30 @@ and TypeScript lint also pass.
 - `backend/migrations/0003_connections.sql`
 - `backend/ingress/contracts.ts`
 - `backend/ingress/provider-registry.ts`
+- `backend/ingress/google.ts`
 - `backend/ingress/providers.ts`
 - `backend/ingress/service.ts`
 - `backend/server.ts`
 - `backend/scripts/ingress-proof.ts`
 - `backend/tests/ingress.contract.test.ts`
 - `backend/tests/provider-registry.test.ts`
+- `backend/tests/google-provider.contract.test.ts`
 - `src/services/api.ts`, `src/services/connections.ts`, `src/pages/SettingsPage.tsx`
 - `package.json`, `README.md`, `.env.example`
 
 ## Remaining gap and next authorized slice
 
-`PROVIDER_DISCOVERY_REQUIRED`: an operator must identify the backing mail and
-calendar providers and configure their documented local secret/authorization
-flow without placing credentials in chat, Git, reports, logs, or `.env.example`.
-Then real-provider acceptance must prove controlled read, non-mutation,
-replay/restart, update/cancellation, recurrence, and outage/recovery. No iCloud
-parity is claimed until that evidence exists. The Connections surface is
-compiled and API-proven, but browser-render/reload acceptance remains to be
-performed with the configured real-provider path; it is not substituted by the
-backend restart proof.
+`GOOGLE_LOCAL_SECRET_AUTHORITY_REQUIRED`: an operator must configure the
+approved local Google OAuth client ID, client secret, exact callback redirect
+URI, and an injected refresh-token secret reference without placing credential
+values in chat, Git, reports, logs, or `.env.example`. The callback deliberately
+does not write a refresh token because this repository has no approved writable
+secret vault; it verifies the OAuth exchange and then fails closed until the
+local secret authority owns storage. Once the secret authority is configured,
+real-provider acceptance must prove controlled Gmail unread read and replay,
+Google Calendar update/cancellation/recurrence, restart, outage/recovery, and
+browser-render/reload behavior. No iCloud parity is claimed until that evidence
+exists.
 
 After real-provider acceptance succeeds, the next authorized authority is
 `NE_DIRECTOR_INGRESS_INTERPRETATION_AND_ATTENTION_AUTHORITY_001`.

@@ -36,11 +36,11 @@ projects active schedule observations into `GET /api/v1/today`.
 
 The service exposes `GET /api/v1/ingress/accounts`,
 `GET /api/v1/ingress/communications`, `GET /api/v1/ingress/schedule`, and
-`POST /api/v1/ingress/sync`. Sync writes local evidence only. Normal server
-composition intentionally has no external provider registered until an
-operator has identified the backing provider and configured approved local
-secret injection. It contains no send/reply, mailbox mutation, calendar
-mutation, AppleScript, or local client-database access path.
+`POST /api/v1/ingress/sync`. Sync writes local evidence only. Server
+composition registers the selected Google Provider 001 read-only Gmail and
+Calendar adapters, which remain unavailable until an operator configures
+approved local secret injection. It contains no send/reply, mailbox mutation,
+calendar mutation, AppleScript, or local client-database access path.
 
 Connections are provider-neutral and user-managed rather than singleton
 operator configuration. `GET`/`POST`/`PATCH`
@@ -49,12 +49,19 @@ private, work, and shared-production accounts. A connection owns its provider,
 non-secret configuration metadata, authorization state, health state, and the
 enabled `MAIL`, `CALENDAR`, and `CONTACTS` capabilities. Each enabled
 capability has its own SourceAccount and selection metadata for included
-mailboxes or calendars. `POST /connections/:id/authorization-intent` records
-the start of an approved provider authorization flow; it does not accept
-credentials and returns `PROVIDER_ADAPTER_NOT_IMPLEMENTED` until a verified
-adapter exists. `POST /connections/:id/revoke` disables all linked source
-accounts locally. Contacts is a configurable future capability only—there is
-no Contacts ingestion or identity merge in this authority.
+mailboxes or calendars. For Google,
+`POST /connections/:id/authorization-intent` returns an OAuth 2.0
+Authorization Code + PKCE handoff URL, after which the verified local secret
+authority supplies the refresh token by reference. The core reads only the
+following local environment names: `DIRECTOR_GOOGLE_OAUTH_CLIENT_ID`,
+`DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET`,
+`DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI`, and either
+`DIRECTOR_GOOGLE_REFRESH_TOKEN` or a connection-scoped
+`googleRefreshTokenSecretRef` pointing to another `DIRECTOR_*` environment
+name. Values must never be added to `.env.example`, Git, reports, or chat.
+`POST /connections/:id/revoke` disables all linked source accounts locally.
+Contacts is a configurable future capability only—there is no Contacts
+ingestion or identity merge in this authority.
 
 Run the deterministic PostgreSQL proof only against a disposable database:
 

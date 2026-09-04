@@ -53,6 +53,13 @@ export class IngressService {
   }
 
   /** Records an operator authorization handoff; provider implementations perform the actual authorization later. */
+  async beginAuthorization(id: string) {
+    const connection = await this.getConnection(id);
+    if (!connection.enabled) throw new CoreError('INGRESS_DISABLED', 409, 'Connection is disabled');
+    await this.db.query("update director_connections set authorization_state='PENDING_OPERATOR',connection_state='AUTH_REQUIRED',last_attempt_at=now(),last_error_code='AUTHORIZATION_PENDING',updated_at=now() where id=$1", [id]);
+    return this.getConnection(id);
+  }
+
   async requestAuthorization(id: string) {
     const connection = await this.getConnection(id);
     if (!connection.enabled) throw new CoreError('INGRESS_DISABLED', 409, 'Connection is disabled');

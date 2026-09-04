@@ -3,9 +3,12 @@ export type ConnectionCapability = 'MAIL' | 'CALENDAR' | 'CONTACTS';
 export interface ProviderOption {
   id: string;
   displayName: string;
+  mailSupported: boolean;
+  calendarSupported: boolean;
+  contactsSupported: boolean;
   capabilities: ConnectionCapability[];
-  adapterStatus: 'NOT_IMPLEMENTED';
-  authorizationStatus: 'NOT_IMPLEMENTED';
+  authMode: 'OAUTH_2_AUTHORIZATION_CODE_PKCE' | 'NOT_IMPLEMENTED';
+  implementationStatus: 'AVAILABLE' | 'NOT_IMPLEMENTED';
   detail: string;
 }
 

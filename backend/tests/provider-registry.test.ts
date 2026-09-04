@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { providerById, providerRegistry } from '../ingress/provider-registry.js';
 
-test('Settings provider choices come from one registry and make adapter availability explicit', () => {
+test('Settings provider choices come from one registry and make implementation availability explicit', () => {
   assert.deepEqual(providerRegistry.map(provider => provider.id), ['ICLOUD', 'GOOGLE', 'MICROSOFT_365', 'OTHER']);
-  assert.equal(providerRegistry.every(provider => provider.adapterStatus === 'NOT_IMPLEMENTED' && provider.authorizationStatus === 'NOT_IMPLEMENTED'), true);
+  assert.equal(providerById('GOOGLE')?.implementationStatus, 'AVAILABLE');
+  assert.equal(providerRegistry.filter(provider => provider.id !== 'GOOGLE').every(provider => provider.implementationStatus === 'NOT_IMPLEMENTED'), true);
 });
 
 test('provider selection is explicit and Contacts remains a selectable future capability', () => {
