@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { CoreError } from '../core.js';
-import type { CommunicationIngressProvider, Connection, ExternalIdentity, InboundCommunication, ProviderPage, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
+import type { CommunicationIngressProvider, Connection, ExternalIdentity, InboundCommunication, ProviderFailure, ProviderFailureCategory, ProviderPage, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
 import { EnvironmentSecretStore, type SecretReference, type SecretStore, environmentSecretReference, isOpaqueSecretReference } from '../secrets/store.js';
 
 const gmailScope = 'https://www.googleapis.com/auth/gmail.readonly';
@@ -28,6 +28,67 @@ const attachments = (payload: any): Array<Record<string, unknown>> => {
   return [...current, ...(payload.parts ?? []).flatMap(attachments)];
 };
 
+const safeGoogleReasons = new Set(['accessnotconfigured', 'backenderror', 'dailylimitexceeded', 'forbidden', 'insufficientpermissions', 'ratelimitexceeded', 'userratelimitexceeded']);
+const retryableStatuses = new Set([429, 500, 502, 503, 504]);
+const maxReadRetries = 2;
+const maxRetryAfterMs = 30_000;
+export const gmailDetailConcurrency = 5;
+export const gmailPagesPerMailbox = 20;
+
+const retryAfterMs = (value: string | null): number | undefined => {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(Math.round(seconds * 1000), maxRetryAfterMs);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.min(Math.max(0, date - Date.now()), maxRetryAfterMs) : undefined;
+};
+
+const providerReason = (data: any): string | undefined => {
+  const candidate = data?.error?.errors?.[0]?.reason ?? data?.error?.status;
+  if (typeof candidate !== 'string') return undefined;
+  const normalized = candidate.toLowerCase();
+  return safeGoogleReasons.has(normalized) ? normalized : undefined;
+};
+
+const categoryFor = (status: number | undefined, reason?: string): ProviderFailureCategory => {
+  if (status === 401) return 'AUTH_REQUIRED';
+  if (status === 403 && ['insufficientpermissions', 'accessnotconfigured'].includes(reason ?? '')) return 'CONFIGURATION_REQUIRED';
+  if (status === 403 && ['ratelimitexceeded', 'userratelimitexceeded', 'dailylimitexceeded'].includes(reason ?? '')) return 'PROVIDER_RATE_LIMITED';
+  if (status === 403) return 'AUTH_REQUIRED';
+  if (status === 429) return 'PROVIDER_RATE_LIMITED';
+  return 'PROVIDER_UNAVAILABLE';
+};
+
+export class GoogleProviderError extends Error implements ProviderFailure {
+  readonly name = 'GoogleProviderError';
+  constructor(readonly category: ProviderFailureCategory, readonly status: number | undefined, readonly providerReason: string | undefined, readonly retryable: boolean, readonly retryAfterMs?: number) {
+    super(`Google provider ${category.toLowerCase()}`);
+  }
+}
+
+const errorFromResponse = async (response: Response): Promise<GoogleProviderError> => {
+  const data = await response.json().catch(() => undefined);
+  const reason = providerReason(data);
+  return new GoogleProviderError(categoryFor(response.status, reason), response.status, reason, retryableStatuses.has(response.status), retryAfterMs(response.headers.get('retry-after')));
+};
+
+const unavailable = () => new GoogleProviderError('PROVIDER_UNAVAILABLE', undefined, undefined, true);
+const sleep = (duration: number) => new Promise(resolve => setTimeout(resolve, duration));
+
+const mapBounded = async <T, R>(values: T[], limit: number, operation: (value: T) => Promise<R>): Promise<R[]> => {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= values.length) return;
+      results[index] = await operation(values[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
+  return results;
+};
+
 export class GoogleTokenProvider {
   constructor(private readonly secretStore: SecretStore = new EnvironmentSecretStore()) {}
   private clientId() { return process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; }
@@ -43,23 +104,32 @@ export class GoogleTokenProvider {
 
   async accessToken(connection: Connection) {
     const clientId = this.clientId(); const clientSecret = this.clientSecret(); const refreshToken = await this.refreshToken(connection);
-    if (!clientId || !clientSecret || !refreshToken) throw new Error('Google authorization credentials are not configured');
+    if (!clientId || !clientSecret || !refreshToken) throw new GoogleProviderError('CONFIGURATION_REQUIRED', undefined, undefined, false);
     const body = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' });
-    const response = await fetch(oauthToken, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15000) });
-    if (!response.ok) throw new Error('Google authorization failed');
+    let response: Response;
+    try { response = await fetch(oauthToken, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15000) }); }
+    catch { throw unavailable(); }
+    if (!response.ok) throw await errorFromResponse(response);
     const data = await response.json() as { access_token?: string };
-    if (!data.access_token) throw new Error('Google authorization failed');
+    if (!data.access_token) throw new GoogleProviderError('AUTH_REQUIRED', undefined, undefined, false);
     return data.access_token;
   }
 
   async get(connection: Connection, url: URL) {
-    const response = await fetch(url, { headers: { authorization: `Bearer ${await this.accessToken(connection)}` }, signal: AbortSignal.timeout(15000) });
-    if (!response.ok) {
-      const error = new Error(response.status === 401 || response.status === 403 ? 'Google authorization failed' : `Google read failed (${response.status})`);
-      (error as Error & { status?: number }).status = response.status;
-      throw error;
+    const accessToken = await this.accessToken(connection);
+    let lastError: GoogleProviderError | undefined;
+    for (let attempt = 0; attempt <= maxReadRetries; attempt += 1) {
+      try {
+        const response = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15000) });
+        if (response.ok) return response.json();
+        lastError = await errorFromResponse(response);
+      } catch (error) {
+        lastError = error instanceof GoogleProviderError ? error : unavailable();
+      }
+      if (!lastError.retryable || attempt === maxReadRetries) throw lastError;
+      await sleep(lastError.retryAfterMs ?? Math.min(100 * 2 ** attempt, 1_000));
     }
-    return response.json();
+    throw lastError ?? unavailable();
   }
 }
 
@@ -99,19 +169,28 @@ export class GoogleCommunicationIngressAdapter implements CommunicationIngressPr
     if (!account.connectionId) throw new Error('Google source account requires a connection');
     const connection = await this.connectionFor(account.connectionId); const labels = asStrings(account.selectionMetadata?.includedMailboxes, ['INBOX']);
     const ids = new Map<string, any>();
+    const resumable = typeof cursor.gmailPageContinuation === 'object' && cursor.gmailPageContinuation ? cursor.gmailPageContinuation as Record<string, unknown> : {};
+    const nextPageContinuation: Record<string, string> = {};
     for (const label of labels.slice(0, 10)) {
-      const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
-      url.searchParams.set('maxResults', '100'); url.searchParams.set('q', 'is:unread'); url.searchParams.append('labelIds', label);
-      const listed = await this.tokenProvider.get(connection, url) as any;
-      for (const message of listed.messages ?? []) ids.set(message.id, message);
+      let pageToken = typeof resumable[label] === 'string' ? resumable[label] : undefined;
+      for (let page = 0; page < gmailPagesPerMailbox; page += 1) {
+        const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
+        url.searchParams.set('maxResults', '100'); url.searchParams.set('q', 'is:unread'); url.searchParams.append('labelIds', label);
+        if (pageToken) url.searchParams.set('pageToken', pageToken);
+        const listed = await this.tokenProvider.get(connection, url) as any;
+        for (const message of listed.messages ?? []) ids.set(message.id, message);
+        pageToken = typeof listed.nextPageToken === 'string' ? listed.nextPageToken : undefined;
+        if (!pageToken) break;
+      }
+      if (pageToken) nextPageContinuation[label] = pageToken;
     }
-    const items = await Promise.all([...ids.values()].map(async listed => {
+    const items = await mapBounded([...ids.values()], gmailDetailConcurrency, async listed => {
       const detail = await this.tokenProvider.get(connection, new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(listed.id)}?format=full`)) as any;
       const messageHeaders = headers(detail.payload); const text = textParts(detail.payload).join('\n').trim();
       return { id: randomUUID(), sourceAccountId: account.id, sourceSystem: this.provider, sourceLocator: `gmail:${detail.id}`, providerRevision: String(detail.historyId ?? detail.internalDate ?? detail.id), remoteMessageIdentity: { gmail_message_id: detail.id, thread_id: detail.threadId, history_id: detail.historyId }, messageId: messageHeaders['message-id'], references: (messageHeaders.references ?? '').split(/\s+/).filter(Boolean), inReplyTo: messageHeaders['in-reply-to'], sender: identity(messageHeaders.from), recipients: [...identities(messageHeaders.to), ...identities(messageHeaders.cc)], subject: messageHeaders.subject ?? '(no subject)', receivedAt: detail.internalDate ? new Date(Number(detail.internalDate)).toISOString() : undefined, sentAt: messageHeaders.date ? new Date(messageHeaders.date).toISOString() : undefined, flags: detail.labelIds ?? [], normalizedText: text, contentHash: hash(text), attachmentMetadata: attachments(detail.payload), observedAt: new Date().toISOString(), provenance: { provider: 'GOOGLE', api: 'gmail.v1', untrusted_content: true } } satisfies InboundCommunication;
-    }));
+    });
     const latestHistoryId = items.map(item => String(item.remoteMessageIdentity.history_id ?? '')).sort().at(-1) ?? cursor.historyId;
-    return { items, nextCursor: { historyId: latestHistoryId, mailboxLabels: labels } };
+    return { items, nextCursor: { historyId: latestHistoryId, mailboxLabels: labels, gmailPageContinuation: nextPageContinuation } };
   }
 }
 

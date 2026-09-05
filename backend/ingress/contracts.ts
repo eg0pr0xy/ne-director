@@ -3,6 +3,18 @@ export type ConnectionCapability = 'MAIL' | 'CALENDAR' | 'CONTACTS';
 export type ConnectionState = 'CONNECTED' | 'DEGRADED' | 'AUTH_REQUIRED' | 'DISABLED' | 'UNAVAILABLE';
 export type AuthorizationState = 'NOT_CONFIGURED' | 'PENDING_OPERATOR' | 'AUTHORIZED' | 'REVOKED';
 export type IdentityResolution = 'RESOLVED' | 'UNRESOLVED' | 'AMBIGUOUS';
+export type ProviderFailureCategory = 'AUTH_REQUIRED' | 'CONFIGURATION_REQUIRED' | 'PROVIDER_RATE_LIMITED' | 'PROVIDER_UNAVAILABLE';
+
+/**
+ * A provider-safe failure envelope.  It deliberately contains no response body,
+ * request URL, credential, or other potentially sensitive provider material.
+ */
+export interface ProviderFailure {
+  category: ProviderFailureCategory;
+  status?: number;
+  providerReason?: string;
+  retryable: boolean;
+}
 
 export interface ExternalIdentity {
   value: string;

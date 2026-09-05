@@ -24,13 +24,26 @@ const candidates = await pool.query(`
       or (c.display_name='Google Failed Secret' and c.capabilities='["MAIL"]'::jsonb and c.authorization_state='PENDING_OPERATOR' and coalesce(array_agg(sa.capability order by sa.capability) filter (where sa.id is not null), array[]::text[])=array[]::text[])
 `);
 
+// These rows are created only by the isolated proof harness.  Keep the proof
+// predicate exact: no real connected account can qualify by display name alone.
+const standaloneCandidates = await pool.query(`
+  select id,display_name,provider,capability,account_identifier
+  from director_source_accounts
+  where connection_id is null and (
+    (display_name='Fixture Mail' and provider='FAKE_STANDARD' and capability='COMMUNICATION' and account_identifier='fixture-mail')
+    or (display_name='Fixture Calendar' and provider='FAKE_STANDARD' and capability='SCHEDULE' and account_identifier='fixture-calendar')
+    or (display_name='Fault fixture' and provider='FAULT_STANDARD' and capability='COMMUNICATION' and account_identifier='fault-mail')
+    or (display_name='Foreign fixture' and provider='FOREIGN_STANDARD' and capability='COMMUNICATION' and account_identifier='foreign-mail')
+  )
+`);
+
 const confirmed = process.argv.includes('--confirm');
-console.log(JSON.stringify({ mode: confirmed ? 'CONFIRM' : 'DRY_RUN', candidates: candidates.rows.map(row => ({ displayName: row.display_name, provider: row.provider, accountIdentifier: row.account_identifier, sourceCapabilities: row.source_capabilities, hasOpaqueSecretReference: isOpaqueSecretReference(row.configuration_metadata?.googleRefreshTokenSecretRef) })) }));
-if (!confirmed || candidates.rows.length === 0) { await pool.end(); process.exit(0); }
+console.log(JSON.stringify({ mode: confirmed ? 'CONFIRM' : 'DRY_RUN', candidates: candidates.rows.map(row => ({ displayName: row.display_name, provider: row.provider, accountIdentifier: row.account_identifier, sourceCapabilities: row.source_capabilities, hasOpaqueSecretReference: isOpaqueSecretReference(row.configuration_metadata?.googleRefreshTokenSecretRef) })), standaloneCandidates: standaloneCandidates.rows.map(row => ({ displayName: row.display_name, provider: row.provider, capability: row.capability, accountIdentifier: row.account_identifier })) }));
+if (!confirmed || (candidates.rows.length === 0 && standaloneCandidates.rows.length === 0)) { await pool.end(); process.exit(0); }
 
 const connectionIds = candidates.rows.map(row => row.id);
 const sourceAccounts = await pool.query('select id from director_source_accounts where connection_id = any($1::uuid[])', [connectionIds]);
-const sourceAccountIds = sourceAccounts.rows.map(row => row.id);
+const sourceAccountIds = [...sourceAccounts.rows.map(row => row.id), ...standaloneCandidates.rows.map(row => row.id)];
 const client = await pool.connect();
 try {
   await client.query('begin');
@@ -44,5 +57,5 @@ try {
   await client.query('commit');
   const secretStore = localDevelopmentSecretStore(); const references = candidates.rows.map(row => row.configuration_metadata?.googleRefreshTokenSecretRef).filter(isOpaqueSecretReference).filter(reference => reference.startsWith('secret://'));
   await Promise.all(references.map(reference => secretStore.delete(reference).catch(() => undefined)));
-  console.log(JSON.stringify({ deletedConnections: connectionIds.length, deletedSourceAccounts: sourceAccountIds.length }));
+  console.log(JSON.stringify({ deletedConnections: connectionIds.length, deletedSourceAccounts: sourceAccountIds.length, deletedStandaloneProofAccounts: standaloneCandidates.rows.length }));
 } catch (error) { await client.query('rollback'); throw error; } finally { client.release(); await pool.end(); }

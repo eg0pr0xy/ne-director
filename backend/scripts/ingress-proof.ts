@@ -6,7 +6,7 @@ import { migrateDatabase } from '../persistence/migration-runner.js';
 import { IngressService } from '../ingress/service.js';
 import { FakeStandardProvider } from '../ingress/providers.js';
 import type { CommunicationIngressProvider, InboundCommunication, ScheduleIngressProvider, ScheduleRecord } from '../ingress/contracts.js';
-import { GoogleAuthorizationFlow } from '../ingress/google.js';
+import { GoogleAuthorizationFlow, GoogleProviderError } from '../ingress/google.js';
 import { EnvironmentSecretStore, localDevelopmentSecretStore } from '../secrets/store.js';
 import { createDirectorApp } from '../server.js';
 
@@ -71,11 +71,11 @@ const foreignAccount = await foreignService.createSourceAccount({ provider: 'FOR
 await assert.rejects(() => foreignService.sync(foreignAccount.id), { code: 'INGRESS_INVALID_SOURCE_FACT' });
 assert.equal((await pool.query('select count(*)::int as count from director_communication_source_records where source_account_id=$1', [foreignAccount.id])).rows[0].count, 0);
 
-const auth = new IngressService(pool, { communication: new Map([['FAKE_STANDARD', { provider: 'FAKE_STANDARD', async fetchCommunications() { throw new Error('app password revoked'); } }]]), schedule: new Map() });
+const auth = new IngressService(pool, { communication: new Map([['FAKE_STANDARD', { provider: 'FAKE_STANDARD', async fetchCommunications() { throw new GoogleProviderError('AUTH_REQUIRED', 401, undefined, false); } }]]), schedule: new Map() });
 await assert.rejects(() => auth.sync(mailAccount.id), { code: 'INGRESS_AUTH_REQUIRED' });
 assert.equal((await auth.getAccount(mailAccount.id)).connectionState, 'AUTH_REQUIRED');
 const authState = (await auth.getAccount(mailAccount.id)).connectionState;
-const outage = new IngressService(pool, { communication: new Map([['FAKE_STANDARD', { provider: 'FAKE_STANDARD', async fetchCommunications() { throw new Error('network unavailable'); } }]]), schedule: new Map() });
+const outage = new IngressService(pool, { communication: new Map([['FAKE_STANDARD', { provider: 'FAKE_STANDARD', async fetchCommunications() { throw new GoogleProviderError('PROVIDER_UNAVAILABLE', 503, 'backenderror', true); } }]]), schedule: new Map() });
 await assert.rejects(() => outage.sync(mailAccount.id), { code: 'INGRESS_UNAVAILABLE' });
 assert.equal((await outage.getAccount(mailAccount.id)).connectionState, 'DEGRADED');
 assert.equal((await pool.query('select count(*)::int as count from director_communication_source_records where source_account_id=$1 and is_current=true', [mailAccount.id])).rows[0].count, 1);
@@ -122,7 +122,7 @@ const workCalendar = neWork.sourceAccounts.find((item: any) => item.capability =
 await healthService.sync(privateMail.id); await healthService.sync(privateCalendar.id); await healthService.sync(workCalendar.id);
 assert.equal((await healthService.getConnection(marcusPrivate.connection.id)).connectionState, 'CONNECTED');
 assert.equal((await healthService.getConnection(neWork.connection.id)).connectionState, 'CONNECTED');
-const calendarOutage = new IngressService(pool, { communication: new Map<string, CommunicationIngressProvider>([['ICLOUD', healthProvider], ['MICROSOFT_365', healthProvider]]), schedule: new Map<string, ScheduleIngressProvider>([['ICLOUD', { provider: 'ICLOUD', async fetchSchedule() { throw new Error('network unavailable'); } }], ['MICROSOFT_365', healthProvider]]) });
+const calendarOutage = new IngressService(pool, { communication: new Map<string, CommunicationIngressProvider>([['ICLOUD', healthProvider], ['MICROSOFT_365', healthProvider]]), schedule: new Map<string, ScheduleIngressProvider>([['ICLOUD', { provider: 'ICLOUD', async fetchSchedule() { throw new GoogleProviderError('PROVIDER_UNAVAILABLE', 503, 'backenderror', true); } }], ['MICROSOFT_365', healthProvider]]) });
 await assert.rejects(() => calendarOutage.sync(privateCalendar.id), { code: 'INGRESS_UNAVAILABLE' });
 assert.equal((await calendarOutage.getConnection(marcusPrivate.connection.id)).connectionState, 'DEGRADED');
 assert.equal((await calendarOutage.getConnection(neWork.connection.id)).connectionState, 'CONNECTED');

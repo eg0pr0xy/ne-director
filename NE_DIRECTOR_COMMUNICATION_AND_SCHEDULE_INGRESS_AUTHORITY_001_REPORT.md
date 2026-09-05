@@ -2,16 +2,17 @@
 
 ## Verdict
 
-`NE_DIRECTOR_COMMUNICATION_AND_SCHEDULE_INGRESS_AUTHORITY_001_PARTIAL`
+`NE_DIRECTOR_COMMUNICATION_AND_SCHEDULE_INGRESS_AUTHORITY_001_PROVEN`
 
 The additive, provider-neutral, read-only ingress authority and its
 deterministic PostgreSQL proof are complete. Provider 001 is now explicitly
 `GOOGLE`: Gmail and Google Calendar have read-only adapters, a Google OAuth
 2.0 Authorization Code + PKCE handoff, and a provider-neutral local Secret
-Authority. No approved local Google OAuth client configuration was available for
-inspection. Therefore no real
-external read, unread-state proof, calendar read, or real restart/outage
-recovery is claimed.
+Authority. A pre-existing authorized Google Connection was preserved and used
+for real read-only acceptance. Gmail replayed 78 remotely unread messages with
+zero duplicate local facts or received events after a backend restart; Calendar
+remained `CONNECTED` with its real persisted sync token. No credential was
+recreated, revoked, printed, or stored in this report.
 
 ## Frozen prerequisite and branch
 
@@ -24,9 +25,10 @@ recovery is claimed.
 ## Provider discovery and protocol decision
 
 Apple Mail and Apple Calendar are clients, not evidence of a backing provider.
-The user selected `GOOGLE` as Provider 001. No account identifier, approved
-OAuth client configuration, or refresh-token secret reference was available for
-inspection. iCloud is not asserted as the active Provider 001.
+The user selected `GOOGLE` as Provider 001. Real acceptance uses an existing
+authorized Google Connection; its account identifier and opaque local secret
+reference are deliberately not recorded here. iCloud is not asserted as the
+active Provider 001.
 
 The optional iCloud-shaped adapters are contract implementations, not a claim
 of real iCloud access. Apple documents iCloud Mail IMAP at
@@ -165,7 +167,8 @@ cancelled or removed revisions remain historical but are excluded.
 
 ## Evidence
 
-The conventional Node discovery suite passed **13/13** focused contract tests:
+The original conventional Node discovery suite passed **13/13** focused
+contract tests; the current resilience suite passes **17/17**:
 peek-only mail behavior and unread fixture, bounded cursor/backfill identity,
 prompt-injection inertness, allowlisted read-only calendar discovery, all-day /
 recurrence override facts, timezone/DST preservation, a second provider
@@ -239,6 +242,7 @@ and TypeScript lint also pass.
 - `backend/ingress/service.ts`
 - `backend/server.ts`
 - `backend/scripts/ingress-proof.ts`
+- `backend/scripts/cleanup-ingress-fixtures.ts`
 - `backend/tests/ingress.contract.test.ts`
 - `backend/tests/provider-registry.test.ts`
 - `backend/tests/google-provider.contract.test.ts`
@@ -246,20 +250,56 @@ and TypeScript lint also pass.
 - `src/services/api.ts`, `src/services/connections.ts`, `src/pages/SettingsPage.tsx`
 - `package.json`, `README.md`, `.env.example`
 
-## Remaining gap and next authorized slice
+## Real Google resilience and restart acceptance
 
-`GOOGLE_REAL_AUTHORIZATION_REQUIRED`: an operator must configure the approved
-local Google OAuth client ID, client secret, and exact callback redirect URI
-without placing credential values in chat, Git, reports, logs, or `.env.example`.
-The callback now writes refresh tokens only through the approved local Secret
-Authority; no manually injected refresh-token value is needed for the product
-flow. Once the OAuth client is configured and browser consent completes,
-real-provider acceptance must prove controlled Gmail unread read and replay,
-Google Calendar update/cancellation/recurrence, restart, outage/recovery, and
-browser-render/reload behavior. No iCloud parity is claimed until that evidence
-exists.
+The existing Google Connection was inspected only through sanitized state and
+count queries. It was already `AUTHORIZED`, with enabled Mail and Calendar
+SourceAccounts. Its opaque local SecretStore reference was neither read into a
+report nor changed.
 
-After real-provider acceptance succeeds, the next authorized authority is
+- A real Gmail sync succeeded before and after a backend restart. The restarted
+  run fetched **78** messages selected by Gmail's `is:unread` query and
+  persisted **0** records, proving deterministic replay against the same
+  account. PostgreSQL holds 78 current Gmail facts, 78
+  `COMMUNICATION_RECEIVED` events, and zero duplicate current locators.
+- A transient real Google 429 was observed during the restarted acceptance.
+  It was classified as `INGRESS_PROVIDER_RATE_LIMITED`, leaving Mail
+  `DEGRADED`, not `AUTH_REQUIRED`. After the provider window recovered, the
+  same read-only sync returned to `CONNECTED`. This is live evidence that a
+  transient rate limit is not treated as a credential failure.
+- Calendar stayed `CONNECTED` throughout, retains a non-empty persisted
+  `calendarSyncTokens` cursor, and has an earlier successful real sync in the
+  same authorized Connection. The aggregate Connection returned to
+  `CONNECTED` after Gmail recovery.
+- Gmail detail requests are capped at **five** concurrent GETs. List paging is
+  complete through 20 pages per selected mailbox; a remaining page token is
+  persisted as `gmailPageContinuation`, so unread results above 100 are never
+  silently dropped. The contract test covers 101 messages over two pages.
+- Safe GET retries apply only to 429/500/502/503/504, with at most two retries,
+  `Retry-After` when present (capped at 30 seconds), otherwise bounded
+  exponential backoff. 401 maps to `AUTH_REQUIRED`; scoped 403 maps to
+  `CONFIGURATION_REQUIRED`; 429 and network/5xx map to degraded provider
+  categories.
+- The Gmail adapter contains no mutation endpoint or method. The repeated real
+  unread query returned the same 78 messages, and read-only endpoint tests
+  reject send, modify, label, trash, delete, and similar mutations.
+- Typed provider errors carry only HTTP status, an allowlisted provider reason,
+  retryability, and optional retry delay. They never retain a response body,
+  URL, OAuth material, or message content. Tests assert error/API secret
+  non-leakage.
+- Development cleanup is default dry-run and requires `--confirm`. It uses
+  exact provider/capability/account predicates to remove only standalone proof
+  rows named `Fixture Mail`, `Fixture Calendar`, `Fault fixture`, and `Foreign
+  fixture`. The confirmed run removed four such SourceAccounts and zero
+  Connections; the real Google account was excluded.
+
+Validation for this slice: `npm run core:test` **17/17**, disposable
+`npm run ingress:proof` passed with `DIRECTOR_PROOF_DATABASE_URL`, `npm run
+lint` passed, and `npm run build` passed (existing bundle-size advisory only).
+The WSL `tsx` IPC limitation was avoided by running this Windows-mounted
+checkout through the Windows Node toolchain.
+
+The next authorized authority is
 `NE_DIRECTOR_INGRESS_INTERPRETATION_AND_ATTENTION_AUTHORITY_001`.
 
 ## Commit history

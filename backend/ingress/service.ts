@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { CoreError } from '../core.js';
-import type { AuthorizationState, CommunicationIngressProvider, Connection, ConnectionCapability, ConnectionState, ExternalIdentity, InboundCommunication, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
+import type { AuthorizationState, CommunicationIngressProvider, Connection, ConnectionCapability, ConnectionState, ExternalIdentity, InboundCommunication, ProviderFailure, ProviderFailureCategory, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
 import { providerById } from './provider-registry.js';
 import { isOpaqueSecretReference, type SecretReference } from '../secrets/store.js';
 
@@ -14,6 +14,12 @@ const identity = (value: ExternalIdentity) => ({ value: value.value, displayName
 const json = (value: unknown) => JSON.stringify(value);
 const unassigned = { authority: 'INGRESS', external_id: 'unassigned', display_snapshot: 'UNASSIGNED' };
 const sourceCapability = (capability: ConnectionCapability) => capability === 'MAIL' ? 'COMMUNICATION' : capability === 'CALENDAR' ? 'SCHEDULE' : 'CONTACTS';
+const providerFailure = (error: unknown): ProviderFailure | undefined => {
+  if (!error || typeof error !== 'object') return undefined;
+  const candidate = error as Partial<ProviderFailure>;
+  const categories: ProviderFailureCategory[] = ['AUTH_REQUIRED', 'CONFIGURATION_REQUIRED', 'PROVIDER_RATE_LIMITED', 'PROVIDER_UNAVAILABLE'];
+  return categories.includes(candidate.category as ProviderFailureCategory) && typeof candidate.retryable === 'boolean' ? candidate as ProviderFailure : undefined;
+};
 const assertSafeMetadata = (metadata: Record<string, unknown>) => {
   const inspect = (value: unknown, path = ''): void => {
     if (Array.isArray(value)) return value.forEach((item, index) => inspect(item, `${path}[${index}]`));
@@ -166,11 +172,14 @@ export class IngressService {
         ? await (provider as CommunicationIngressProvider).fetchCommunications(account, account.cursorState)
         : await (provider as ScheduleIngressProvider).fetchSchedule(account, account.cursorState);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Provider unavailable';
-      const state = /auth|credential|password|unauthor/i.test(message) ? 'AUTH_REQUIRED' : 'DEGRADED';
-      await this.db.query('update director_source_accounts set connection_state=$2,last_error_code=$3,updated_at=now() where id=$1', [account.id, state, state === 'AUTH_REQUIRED' ? 'AUTH_REQUIRED' : 'PROVIDER_UNAVAILABLE']);
+      const failure = providerFailure(error);
+      const category = failure?.category ?? 'PROVIDER_UNAVAILABLE';
+      const state = category === 'AUTH_REQUIRED' || category === 'CONFIGURATION_REQUIRED' ? 'AUTH_REQUIRED' : 'DEGRADED';
+      await this.db.query('update director_source_accounts set connection_state=$2,last_error_code=$3,updated_at=now() where id=$1', [account.id, state, category]);
       await this.refreshConnectionHealth(account.connectionId);
-      throw new CoreError(state === 'AUTH_REQUIRED' ? 'INGRESS_AUTH_REQUIRED' : 'INGRESS_UNAVAILABLE', 503, state === 'AUTH_REQUIRED' ? 'Provider authorization required' : 'Provider unavailable');
+      const code = category === 'AUTH_REQUIRED' ? 'INGRESS_AUTH_REQUIRED' : category === 'CONFIGURATION_REQUIRED' ? 'INGRESS_CONFIGURATION_REQUIRED' : category === 'PROVIDER_RATE_LIMITED' ? 'INGRESS_PROVIDER_RATE_LIMITED' : 'INGRESS_UNAVAILABLE';
+      const message = state === 'AUTH_REQUIRED' ? 'Provider authorization or configuration required' : category === 'PROVIDER_RATE_LIMITED' ? 'Provider rate limited' : 'Provider unavailable';
+      throw new CoreError(code, 503, message);
     }
 
     {
@@ -189,7 +198,7 @@ export class IngressService {
         await client.query("update director_source_accounts set cursor_state=$2,connection_state='CONNECTED',last_successful_sync_at=now(),last_error_code=null,updated_at=now() where id=$1", [account.id, json(page.nextCursor)]);
         await client.query('commit');
         await this.refreshConnectionHealth(account.connectionId);
-        return { accountId: account.id, persisted, cursor: page.nextCursor };
+        return { accountId: account.id, fetched: page.items.length, persisted, cursor: page.nextCursor };
       } catch (error) { await client.query('rollback'); throw error; } finally { client.release(); }
     }
   }
