@@ -9,6 +9,7 @@
     "core:migrate": "tsx backend/persistence/migrate.ts",
     "core:test": "tsx --test backend/tests/**/*.test.ts",
     "ingress:proof": "tsx backend/scripts/ingress-proof.ts",
+    "interpretation:proof": "tsx backend/scripts/interpretation-proof.ts",
     "ingress:isolation:proof": "tsx backend/scripts/ingress-proof-isolation.ts",
     "dev:cleanup-ingress-fixtures": "tsx backend/scripts/cleanup-ingress-fixtures.ts",
     "build": "vite build",

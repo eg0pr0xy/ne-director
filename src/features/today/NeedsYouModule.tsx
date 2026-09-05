@@ -88,6 +88,7 @@ const NeedsYouCard: React.FC<{ item: AttentionItem, onReview: () => void, onAppr
             )}
           </div>
           <p className="text-sm text-text-secondary mt-1 line-clamp-1">{item.subtitle}</p>
+          {item.context?.details && <p className="text-[10px] uppercase tracking-wider text-text-muted mt-2">Why is this here? {item.context.details}</p>}
           {item.deadline && (
             <p className="text-xs text-[#E56A54] mt-1.5 font-medium">Deadline {item.deadline}</p>
           )}
