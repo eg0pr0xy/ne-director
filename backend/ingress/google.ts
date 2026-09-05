@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { CoreError } from '../core.js';
 import type { CommunicationIngressProvider, Connection, ExternalIdentity, InboundCommunication, ProviderPage, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
+import { EnvironmentSecretStore, type SecretReference, type SecretStore, environmentSecretReference, isOpaqueSecretReference } from '../secrets/store.js';
 
 const gmailScope = 'https://www.googleapis.com/auth/gmail.readonly';
 const calendarScope = 'https://www.googleapis.com/auth/calendar.readonly';
@@ -28,16 +29,20 @@ const attachments = (payload: any): Array<Record<string, unknown>> => {
 };
 
 export class GoogleTokenProvider {
+  constructor(private readonly secretStore: SecretStore = new EnvironmentSecretStore()) {}
   private clientId() { return process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; }
   private clientSecret() { return process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET; }
-  private refreshToken(connection: Connection) {
+  private async refreshToken(connection: Connection) {
     const configured = connection.configurationMetadata.googleRefreshTokenSecretRef;
-    const reference = typeof configured === 'string' && /^DIRECTOR_[A-Z0-9_]+$/.test(configured) ? configured : 'DIRECTOR_GOOGLE_REFRESH_TOKEN';
-    return process.env[reference];
+    if (typeof configured === 'string' && configured.startsWith('secret://') && isOpaqueSecretReference(configured)) return this.secretStore.get(configured);
+    const fallbackReference = typeof configured === 'string' && configured.startsWith('env://') && isOpaqueSecretReference(configured)
+      ? configured
+      : typeof configured === 'string' ? environmentSecretReference(configured) : environmentSecretReference('DIRECTOR_GOOGLE_REFRESH_TOKEN');
+    return fallbackReference ? new EnvironmentSecretStore().get(fallbackReference) : undefined;
   }
 
   async accessToken(connection: Connection) {
-    const clientId = this.clientId(); const clientSecret = this.clientSecret(); const refreshToken = this.refreshToken(connection);
+    const clientId = this.clientId(); const clientSecret = this.clientSecret(); const refreshToken = await this.refreshToken(connection);
     if (!clientId || !clientSecret || !refreshToken) throw new Error('Google authorization credentials are not configured');
     const body = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' });
     const response = await fetch(oauthToken, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15000) });
@@ -82,8 +87,7 @@ export class GoogleAuthorizationFlow {
     if (!response.ok) throw new CoreError('GOOGLE_AUTH_CALLBACK_REJECTED', 400, 'Google authorization callback rejected');
     const tokens = await response.json() as { refresh_token?: string };
     if (!tokens.refresh_token) throw new CoreError('GOOGLE_SECRET_AUTHORITY_REQUIRED', 503, 'A local secret authority must store the Google refresh token');
-    // Refresh tokens are intentionally discarded here: this repository has no approved writable secret vault.
-    return { connectionId: pending.connectionId, verified: true };
+    return { connectionId: pending.connectionId, refreshToken: tokens.refresh_token };
   }
 }
 

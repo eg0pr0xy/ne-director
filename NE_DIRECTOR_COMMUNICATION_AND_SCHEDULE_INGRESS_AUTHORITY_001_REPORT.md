@@ -6,9 +6,10 @@
 
 The additive, provider-neutral, read-only ingress authority and its
 deterministic PostgreSQL proof are complete. Provider 001 is now explicitly
-`GOOGLE`: Gmail and Google Calendar have read-only adapters and a Google OAuth
-2.0 Authorization Code + PKCE handoff. No approved local Google OAuth client or
-refresh-token secret reference was available for inspection. Therefore no real
+`GOOGLE`: Gmail and Google Calendar have read-only adapters, a Google OAuth
+2.0 Authorization Code + PKCE handoff, and a provider-neutral local Secret
+Authority. No approved local Google OAuth client configuration was available for
+inspection. Therefore no real
 external read, unread-state proof, calendar read, or real restart/outage
 recovery is claimed.
 
@@ -70,6 +71,28 @@ SourceAccount selection metadata persists the explicitly included mailboxes or
 calendars. Contacts is intentionally configuration-only in this authority: a
 Contacts SourceAccount fails closed with `INGRESS_CAPABILITY_NOT_IMPLEMENTED`
 until a separately authorized Contacts ingress authority exists.
+
+`backend/secrets/store.ts` establishes the provider-neutral `SecretStore`
+contract: `put`, `get`, `delete`, and `exists` operate only on opaque
+references. The current approved local-development backend is
+`WindowsDpapiSecretStore`: it encrypts each secret envelope with the current
+Windows user's DPAPI in LocalAppData outside Git, PostgreSQL, frontend storage,
+and API responses; its store directory has an owner-only ACL. It is explicitly
+`LOCAL_DEVELOPMENT_ONLY`, not a production secret-management claim.
+`EnvironmentSecretStore` retains `env://DIRECTOR_*` resolution as a read-only
+acceptance fallback and refuses writes. A Connection persists only an opaque
+`secret://local-development/windows-dpapi/<uuid>` reference in its existing
+non-secret metadata; no migration adds a secret field.
+
+The Google callback now completes the verified authorization-code exchange,
+writes the refresh token through `SecretStore`, persists only its opaque
+reference, then and only then marks the Connection `AUTHORIZED`. If secret
+write/reference persistence fails, the connection remains non-authorized and
+`AUTH_REQUIRED`; the browser receives no token. Local revoke disables the
+Connection and SourceAccounts, deletes a writable local credential where
+possible, and always invalidates its stored reference. The returned revocation
+state is explicitly `LOCAL_REVOCATION_ONLY`; remote Google token revocation is
+not claimed.
 
 Settings now contains an API-runtime-only **Connections** surface. It loads
 Connection, SourceAccount, and provider-registry truth from PostgreSQL/API on
@@ -142,7 +165,7 @@ cancelled or removed revisions remain historical but are excluded.
 
 ## Evidence
 
-The conventional Node discovery suite passed **11/11** focused contract tests:
+The conventional Node discovery suite passed **13/13** focused contract tests:
 peek-only mail behavior and unread fixture, bounded cursor/backfill identity,
 prompt-injection inertness, allowlisted read-only calendar discovery, all-day /
 recurrence override facts, timezone/DST preservation, a second provider
@@ -151,6 +174,9 @@ and adapter availability is explicit, plus deterministic Gmail and Google
 Calendar adapter tests proving only read endpoints are called and that Gmail
 unread facts, Google message/thread/history identifiers, recurrence overrides,
 cancellation, all-day dates, and per-calendar sync tokens are retained.
+Two SecretStore tests additionally prove opaque reference creation, DPAPI
+restart resolution, independent connection references, deletion of only the
+revoked reference, and the read-only environment fallback.
 
 The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
 
@@ -178,13 +204,23 @@ The disposable PostgreSQL `ingress:proof` passed its asserted end-to-end cases:
   connection plus both linked SourceAccounts;
 - two fresh API child processes read the same persisted communication and TODAY
   schedule IDs after restart.
+- controlled OAuth code exchange writes a refresh token only to the DPAPI
+  SecretStore, persists an opaque reference, and marks its Connection
+  `AUTHORIZED` only after both writes succeed;
+- the stored controlled refresh token is absent from PostgreSQL rows and both
+  Connections and Accounts API payloads; a fresh SecretStore resolves the
+  reference after restart;
+- two Google Connections retain independent credential references; revoking one
+  deletes/invalidate its local credential while the other still resolves;
+- a forced read-only-store write failure leaves the Connection non-authorized.
 
 The PostgreSQL proof additionally covers three simultaneous configured connections,
 independent selections, read-only provider-scoped health aggregation,
 authorization failure, local revoke, and the guarantee that degradation of one
-connection leaves another connected connection healthy. It asserts that the
-Connections API response contains no password, token, secret, or app-specific
-password field/value.
+connection leaves another connected connection healthy. It asserts that
+Connections and Accounts API responses contain no password, token, client
+secret, or app-specific-password value; an opaque secret reference is the only
+credential-related connection metadata that may appear.
 
 Core regression was rerun against the same disposable PostgreSQL authority:
 Core idempotency/concurrency proof, rollback proof, and API process restart
@@ -196,6 +232,7 @@ and TypeScript lint also pass.
 - `backend/migrations/0002_ingress.sql`
 - `backend/migrations/0003_connections.sql`
 - `backend/ingress/contracts.ts`
+- `backend/secrets/store.ts`
 - `backend/ingress/provider-registry.ts`
 - `backend/ingress/google.ts`
 - `backend/ingress/providers.ts`
@@ -205,18 +242,18 @@ and TypeScript lint also pass.
 - `backend/tests/ingress.contract.test.ts`
 - `backend/tests/provider-registry.test.ts`
 - `backend/tests/google-provider.contract.test.ts`
+- `backend/tests/secret-store.contract.test.ts`
 - `src/services/api.ts`, `src/services/connections.ts`, `src/pages/SettingsPage.tsx`
 - `package.json`, `README.md`, `.env.example`
 
 ## Remaining gap and next authorized slice
 
-`GOOGLE_LOCAL_SECRET_AUTHORITY_REQUIRED`: an operator must configure the
-approved local Google OAuth client ID, client secret, exact callback redirect
-URI, and an injected refresh-token secret reference without placing credential
-values in chat, Git, reports, logs, or `.env.example`. The callback deliberately
-does not write a refresh token because this repository has no approved writable
-secret vault; it verifies the OAuth exchange and then fails closed until the
-local secret authority owns storage. Once the secret authority is configured,
+`GOOGLE_REAL_AUTHORIZATION_REQUIRED`: an operator must configure the approved
+local Google OAuth client ID, client secret, and exact callback redirect URI
+without placing credential values in chat, Git, reports, logs, or `.env.example`.
+The callback now writes refresh tokens only through the approved local Secret
+Authority; no manually injected refresh-token value is needed for the product
+flow. Once the OAuth client is configured and browser consent completes,
 real-provider acceptance must prove controlled Gmail unread read and replay,
 Google Calendar update/cancellation/recurrence, restart, outage/recovery, and
 browser-render/reload behavior. No iCloud parity is claimed until that evidence

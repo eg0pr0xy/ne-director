@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import { CoreError } from '../core.js';
 import type { AuthorizationState, CommunicationIngressProvider, Connection, ConnectionCapability, ConnectionState, ExternalIdentity, InboundCommunication, ScheduleIngressProvider, ScheduleRecord, SourceAccount } from './contracts.js';
 import { providerById } from './provider-registry.js';
+import { isOpaqueSecretReference, type SecretReference } from '../secrets/store.js';
 
 type ProviderRegistry = { communication: Map<string, CommunicationIngressProvider>; schedule: Map<string, ScheduleIngressProvider> };
 type Hooks = { afterSourceRecordPersisted?: () => void };
@@ -13,12 +14,26 @@ const identity = (value: ExternalIdentity) => ({ value: value.value, displayName
 const json = (value: unknown) => JSON.stringify(value);
 const unassigned = { authority: 'INGRESS', external_id: 'unassigned', display_snapshot: 'UNASSIGNED' };
 const sourceCapability = (capability: ConnectionCapability) => capability === 'MAIL' ? 'COMMUNICATION' : capability === 'CALENDAR' ? 'SCHEDULE' : 'CONTACTS';
+const assertSafeMetadata = (metadata: Record<string, unknown>) => {
+  const inspect = (value: unknown, path = ''): void => {
+    if (Array.isArray(value)) return value.forEach((item, index) => inspect(item, `${path}[${index}]`));
+    if (!value || typeof value !== 'object') return;
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      const current = path ? `${path}.${key}` : key;
+      if (/(refresh.?token|access.?token|client.?secret|password|credential)/i.test(key) && !/secret.?ref(erence)?$/i.test(key)) throw new CoreError('INGRESS_SECRET_METADATA_FORBIDDEN', 422, 'Secrets cannot be stored in connection metadata');
+      if (/secret.?ref(erence)?$/i.test(key) && (!isOpaqueSecretReference(nested))) throw new CoreError('INGRESS_SECRET_REFERENCE_INVALID', 422, 'Secret reference is invalid');
+      inspect(nested, current);
+    }
+  };
+  inspect(metadata);
+};
 
 export class IngressService {
   constructor(private readonly db: Pool, private readonly providers: ProviderRegistry, private readonly hooks: Hooks = {}) {}
 
   async createConnection(input: Omit<Connection, 'id' | 'authorizationState' | 'connectionState'> & { authorizationState?: AuthorizationState; connectionState?: ConnectionState }) {
     if (!providerById(input.provider)) throw new CoreError('INGRESS_PROVIDER_UNKNOWN', 422, 'Provider is not registered');
+    assertSafeMetadata(input.configurationMetadata ?? {});
     const id = randomUUID();
     await this.db.query('insert into director_connections(id,display_name,provider,account_identifier,enabled,capabilities,authorization_state,connection_state,configuration_metadata) values($1,$2,$3,$4,$5,$6,$7,$8,$9)', [id, input.displayName, input.provider, input.accountIdentifier, input.enabled, json(input.capabilities), input.authorizationState ?? 'NOT_CONFIGURED', input.connectionState ?? 'UNAVAILABLE', json(input.configurationMetadata ?? {})]);
     return this.getConnection(id);
@@ -46,6 +61,7 @@ export class IngressService {
   async updateConnection(id: string, input: Partial<Pick<Connection, 'displayName' | 'enabled' | 'capabilities' | 'configurationMetadata'>>) {
     const existing = await this.getConnection(id);
     const enabled = input.enabled ?? existing.enabled;
+    if (input.configurationMetadata) assertSafeMetadata(input.configurationMetadata);
     await this.db.query('update director_connections set display_name=$2,enabled=$3,capabilities=$4,configuration_metadata=$5,connection_state=case when $3=false then \'DISABLED\' when connection_state=\'DISABLED\' then \'UNAVAILABLE\' else connection_state end,updated_at=now() where id=$1', [id, input.displayName ?? existing.displayName, enabled, json(input.capabilities ?? existing.capabilities), json(input.configurationMetadata ?? existing.configurationMetadata)]);
     if (!enabled) await this.db.query("update director_source_accounts set enabled=false,connection_state='DISABLED',updated_at=now() where connection_id=$1", [id]);
     if (input.capabilities) await this.db.query("update director_source_accounts set enabled=false,connection_state='DISABLED',updated_at=now() where connection_id=$1 and capability <> all($2::text[])", [id, input.capabilities.map(sourceCapability)]);
@@ -70,6 +86,22 @@ export class IngressService {
   async confirmAuthorization(id: string) {
     await this.getConnection(id);
     await this.db.query("update director_connections set authorization_state='AUTHORIZED',connection_state='UNAVAILABLE',last_error_code=null,updated_at=now() where id=$1 and enabled=true", [id]);
+    return this.getConnection(id);
+  }
+
+  /** Provider composition persists an opaque reference only after its SecretStore write succeeds. */
+  async setConnectionSecretReference(id: string, key: string, reference: SecretReference) {
+    if (!/secret.?ref(erence)?$/i.test(key) || !isOpaqueSecretReference(reference)) throw new CoreError('INGRESS_SECRET_REFERENCE_INVALID', 422, 'Secret reference is invalid');
+    const connection = await this.getConnection(id); const metadata = { ...connection.configurationMetadata, [key]: reference };
+    assertSafeMetadata(metadata);
+    await this.db.query('update director_connections set configuration_metadata=$2,updated_at=now() where id=$1', [id, json(metadata)]);
+    return this.getConnection(id);
+  }
+
+  /** Removes only an opaque provider reference; the Connection authority never reads secret contents. */
+  async removeConnectionSecretReference(id: string, key: string) {
+    const connection = await this.getConnection(id); const { [key]: _removed, ...metadata } = connection.configurationMetadata;
+    await this.db.query('update director_connections set configuration_metadata=$2,updated_at=now() where id=$1', [id, json(metadata)]);
     return this.getConnection(id);
   }
 

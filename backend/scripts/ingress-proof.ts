@@ -5,6 +5,8 @@ import { pool } from '../persistence/db.js';
 import { IngressService } from '../ingress/service.js';
 import { FakeStandardProvider } from '../ingress/providers.js';
 import type { CommunicationIngressProvider, InboundCommunication, ScheduleIngressProvider, ScheduleRecord } from '../ingress/contracts.js';
+import { GoogleAuthorizationFlow } from '../ingress/google.js';
+import { EnvironmentSecretStore, localDevelopmentSecretStore } from '../secrets/store.js';
 import { app } from '../server.js';
 
 const now = new Date(); now.setHours(12, 0, 0, 0);
@@ -125,9 +127,59 @@ assert.equal(revokeResponse.status, 200); assert.equal((await revokeResponse.jso
 const revokedAccounts = await pool.query('select count(*)::int as count from director_source_accounts where connection_id=$1 and enabled=false and connection_state=\'DISABLED\'', [neWork.connection.id]);
 assert.equal(revokedAccounts.rows[0].count, 2);
 await assert.rejects(() => healthService.sync(workCalendar.id), { code: 'INGRESS_DISABLED' });
+const priorClientId = process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; const priorClientSecret = process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET; const priorRedirect = process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI; const callbackRefresh = randomUUID(); const networkFetch = globalThis.fetch;
+try {
+  process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID = 'controlled-client'; process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET = 'controlled-client-secret'; process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:4600/api/v1/ingress/google/callback';
+  const intent = await fetch(`http://127.0.0.1:${address.port}/api/v1/ingress/connections/${sharedProduction.connection.id}/authorization-intent`, { method: 'POST' }); assert.equal(intent.status, 200); const authorizationUrl = (await intent.json() as any).authorizationUrl;
+  globalThis.fetch = async (input, init) => String(input).startsWith('https://oauth2.googleapis.com/token') ? new Response(JSON.stringify({ refresh_token: callbackRefresh }), { status: 200, headers: { 'content-type': 'application/json' } }) : networkFetch(input, init);
+  const callback = await fetch(`http://127.0.0.1:${address.port}/api/v1/ingress/google/callback?state=${encodeURIComponent(new URL(authorizationUrl).searchParams.get('state')!)}&code=controlled-code`); assert.equal(callback.status, 204);
+  const authorizedConnection = await (await fetch(`http://127.0.0.1:${address.port}/api/v1/ingress/connections`)).json() as any; const authorizedGoogle = authorizedConnection.items.find((item: any) => item.id === sharedProduction.connection.id);
+  assert.equal(authorizedGoogle.authorizationState, 'AUTHORIZED'); assert.equal(JSON.stringify(authorizedGoogle).includes(callbackRefresh), false); assert.match(authorizedGoogle.configurationMetadata.googleRefreshTokenSecretRef, /^secret:\/\/local-development\/windows-dpapi\//);
+  const callbackRevoke = await fetch(`http://127.0.0.1:${address.port}/api/v1/ingress/connections/${sharedProduction.connection.id}/revoke`, { method: 'POST' }); assert.equal(callbackRevoke.status, 200); const callbackRevocation = await callbackRevoke.json() as any;
+  assert.equal(callbackRevocation.connection.authorizationState, 'REVOKED'); assert.equal(callbackRevocation.localCredentialDisposition, 'DELETED'); assert.equal(callbackRevocation.connection.configurationMetadata.googleRefreshTokenSecretRef, undefined);
+} finally {
+  globalThis.fetch = networkFetch;
+  if (priorClientId === undefined) delete process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; else process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID = priorClientId;
+  if (priorClientSecret === undefined) delete process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET; else process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET = priorClientSecret;
+  if (priorRedirect === undefined) delete process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI; else process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI = priorRedirect;
+}
 await new Promise<void>((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()));
 
-const proofResult = { replay: counts.rows[0], scheduleRevisions: 3, allDayToday: true, transactionReplay: true, auth: authState, outage: (await outage.getAccount(mailAccount.id)).connectionState, apiFailures: [400, 409, 503], factualEvent: prompt.rows[0].event_type, connections: 3, contacts: 'NOT_IMPLEMENTED', connectionHealth: 'SCOPED', revocation: true };
+const secretStore = localDevelopmentSecretStore(); assert.equal(secretStore.writable, true);
+const firstGoogle = await service.createConnection({ displayName: 'Google Private', provider: 'GOOGLE', accountIdentifier: 'private@example.test', enabled: true, capabilities: ['MAIL'], configurationMetadata: {} });
+const secondGoogle = await service.createConnection({ displayName: 'Google Shared', provider: 'GOOGLE', accountIdentifier: 'shared@example.test', enabled: true, capabilities: ['CALENDAR'], configurationMetadata: {} });
+const originalFetch = globalThis.fetch; const originalClientId = process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; const originalClientSecret = process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET; const originalRedirect = process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI;
+const controlledRefresh = randomUUID(); let firstReference: string | undefined; let secondReference: string | undefined;
+try {
+  process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID = 'controlled-client'; process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET = 'controlled-client-secret'; process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:4600/api/v1/ingress/google/callback';
+  globalThis.fetch = async () => new Response(JSON.stringify({ refresh_token: controlledRefresh }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const oauth = new GoogleAuthorizationFlow(); const handoff = oauth.begin(firstGoogle); const authorization = await oauth.complete(new URL(handoff.authorizationUrl).searchParams.get('state')!, 'controlled-code');
+  firstReference = await secretStore.put(authorization.refreshToken, { ownerConnectionId: authorization.connectionId, provider: 'GOOGLE', purpose: 'OAUTH_REFRESH_TOKEN', classification: 'LOCAL_DEVELOPMENT_ONLY' });
+  await service.setConnectionSecretReference(authorization.connectionId, 'googleRefreshTokenSecretRef', firstReference); await service.confirmAuthorization(authorization.connectionId);
+  secondReference = await secretStore.put(randomUUID(), { ownerConnectionId: secondGoogle.id, provider: 'GOOGLE', purpose: 'OAUTH_REFRESH_TOKEN', classification: 'LOCAL_DEVELOPMENT_ONLY' });
+  await service.setConnectionSecretReference(secondGoogle.id, 'googleRefreshTokenSecretRef', secondReference); await service.confirmAuthorization(secondGoogle.id);
+  assert.equal((await service.getConnection(firstGoogle.id)).authorizationState, 'AUTHORIZED'); assert.equal(await secretStore.get(firstReference), controlledRefresh);
+  assert.equal(await localDevelopmentSecretStore().get(secondReference), await secretStore.get(secondReference));
+  const secretRows = await pool.query('select configuration_metadata::text as metadata from director_connections where id = any($1::uuid[])', [[firstGoogle.id, secondGoogle.id]]);
+  assert.equal(secretRows.rows.some(row => row.metadata.includes(controlledRefresh)), false); assert.equal(secretRows.rows.every(row => row.metadata.includes('secret://local-development/windows-dpapi/')), true);
+  const secretHttp = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => secretHttp.once('listening', resolve)); const secretAddress = secretHttp.address(); assert.ok(secretAddress && typeof secretAddress !== 'string');
+  const secretApiConnections = await originalFetch(`http://127.0.0.1:${secretAddress.port}/api/v1/ingress/connections`); const secretApiAccounts = await originalFetch(`http://127.0.0.1:${secretAddress.port}/api/v1/ingress/accounts`);
+  assert.equal(secretApiConnections.status, 200); assert.equal(secretApiAccounts.status, 200); assert.equal(JSON.stringify(await secretApiConnections.json()).includes(controlledRefresh), false); assert.equal(JSON.stringify(await secretApiAccounts.json()).includes(controlledRefresh), false);
+  await new Promise<void>((resolve, reject) => secretHttp.close(error => error ? reject(error) : resolve()));
+  await service.revokeConnection(firstGoogle.id); await secretStore.delete(firstReference); await service.removeConnectionSecretReference(firstGoogle.id, 'googleRefreshTokenSecretRef');
+  assert.equal(await secretStore.exists(firstReference), false); assert.equal(await secretStore.exists(secondReference), true); assert.equal((await service.getConnection(firstGoogle.id)).authorizationState, 'REVOKED'); assert.equal((await service.getConnection(secondGoogle.id)).authorizationState, 'AUTHORIZED');
+  const failedSecretWrite = await service.createConnection({ displayName: 'Google Failed Secret', provider: 'GOOGLE', accountIdentifier: 'failed@example.test', enabled: true, capabilities: ['MAIL'], configurationMetadata: {} }); await service.beginAuthorization(failedSecretWrite.id);
+  await assert.rejects(() => new EnvironmentSecretStore().put(randomUUID(), { ownerConnectionId: failedSecretWrite.id, purpose: 'OAUTH_REFRESH_TOKEN', classification: 'LOCAL_DEVELOPMENT_ONLY' }), { code: 'SECRET_STORE_READ_ONLY' });
+  assert.notEqual((await service.getConnection(failedSecretWrite.id)).authorizationState, 'AUTHORIZED'); assert.equal((await service.getConnection(failedSecretWrite.id)).connectionState, 'AUTH_REQUIRED');
+} finally {
+  globalThis.fetch = originalFetch;
+  if (originalClientId === undefined) delete process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; else process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID = originalClientId;
+  if (originalClientSecret === undefined) delete process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET; else process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET = originalClientSecret;
+  if (originalRedirect === undefined) delete process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI; else process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI = originalRedirect;
+  if (firstReference) await secretStore.delete(firstReference).catch(() => undefined); if (secondReference) await secretStore.delete(secondReference).catch(() => undefined);
+}
+
+const proofResult = { replay: counts.rows[0], scheduleRevisions: 3, allDayToday: true, transactionReplay: true, auth: authState, outage: (await outage.getAccount(mailAccount.id)).connectionState, apiFailures: [400, 409, 503], factualEvent: prompt.rows[0].event_type, connections: 3, contacts: 'NOT_IMPLEMENTED', connectionHealth: 'SCOPED', revocation: true, secretAuthority: 'WINDOWS_DPAPI_LOCAL_DEVELOPMENT_ONLY' };
 await pool.end();
 
 const restartEnv = { ...process.env, TMPDIR: '/tmp', DIRECTOR_PORT: '4612' };

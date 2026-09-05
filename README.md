@@ -51,14 +51,18 @@ enabled `MAIL`, `CALENDAR`, and `CONTACTS` capabilities. Each enabled
 capability has its own SourceAccount and selection metadata for included
 mailboxes or calendars. For Google,
 `POST /connections/:id/authorization-intent` returns an OAuth 2.0
-Authorization Code + PKCE handoff URL, after which the verified local secret
-authority supplies the refresh token by reference. The core reads only the
+Authorization Code + PKCE handoff URL. After the callback verifies the token
+exchange, the provider-neutral SecretStore writes the refresh token outside
+PostgreSQL and returns an opaque `secret://` reference; only that reference is
+persisted in connection metadata. The local-development backend uses the
+current Windows user's DPAPI-protected LocalAppData store and owner-only ACLs.
+The core reads only the
 following local environment names: `DIRECTOR_GOOGLE_OAUTH_CLIENT_ID`,
 `DIRECTOR_GOOGLE_OAUTH_CLIENT_SECRET`,
 `DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI`, and either
-`DIRECTOR_GOOGLE_REFRESH_TOKEN` or a connection-scoped
-`googleRefreshTokenSecretRef` pointing to another `DIRECTOR_*` environment
-name. Values must never be added to `.env.example`, Git, reports, or chat.
+`DIRECTOR_GOOGLE_REFRESH_TOKEN` as an explicit read-only environment fallback.
+Environment refresh-token injection is not the product persistence path. Values
+must never be added to `.env.example`, Git, reports, or chat.
 `POST /connections/:id/revoke` disables all linked source accounts locally.
 Contacts is a configurable future capability only—there is no Contacts
 ingestion or identity merge in this authority.
