@@ -20,6 +20,7 @@ npm run build
 ```bash
 docker compose -f docker-compose.core.yml up -d
 export DIRECTOR_DATABASE_URL='postgres://ne_director:ne_director_local_only@127.0.0.1:55434/ne_director'
+export DIRECTOR_PROOF_DATABASE_URL='postgres://ne_director:ne_director_local_only@127.0.0.1:55435/ne_director_proof'
 TMPDIR=/tmp npm run core:migrate
 TMPDIR=/tmp npm run core:dev
 ```
@@ -70,12 +71,32 @@ ingestion or identity merge in this authority.
 Run the deterministic PostgreSQL proof only against a disposable database:
 
 ```bash
-TMPDIR=/tmp DIRECTOR_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/DATABASE' npm run core:migrate
-TMPDIR=/tmp DIRECTOR_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/DATABASE' npm run ingress:proof
+TMPDIR=/tmp DIRECTOR_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/ne_director' npm run core:migrate
+TMPDIR=/tmp DIRECTOR_PROOF_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/ne_director_proof' npm run ingress:proof
 ```
 
 The placeholders above are deliberately non-secret. Do not paste provider
 credentials into source control, `.env.example`, reports, or chat.
+
+`ingress:proof` is isolated from normal development data. It requires
+`DIRECTOR_PROOF_DATABASE_URL`, rejects missing/non-`_proof`/production-like
+targets with `PROOF_DATABASE_REQUIRED`, and never falls back to
+`DIRECTOR_DATABASE_URL`. The compose setup supplies `ne_director_proof` on
+port `55435` solely for this disposable proof path. To verify isolation against
+the local canonical database, run:
+
+```bash
+TMPDIR=/tmp DIRECTOR_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/ne_director' DIRECTOR_PROOF_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/ne_director_proof' npm run ingress:isolation:proof
+```
+
+If legacy proof fixtures are present in the canonical development database,
+inspect the exact, multi-predicate candidates first and delete only after an
+explicit confirmation:
+
+```bash
+TMPDIR=/tmp npm run dev:cleanup-ingress-fixtures
+TMPDIR=/tmp npm run dev:cleanup-ingress-fixtures -- --confirm
+```
 
 ## Architecture
 

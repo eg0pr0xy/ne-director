@@ -91,7 +91,7 @@ export const SettingsPage = () => {
   const sections = Array.from(new Set(CATEGORIES.map(c => c.section)));
 
   return (
-    <div className="px-8 py-10 max-w-[1200px] mx-auto pb-32 h-full flex flex-col">
+    <div className="box-border px-8 py-10 max-w-[1200px] mx-auto pb-32 h-full min-h-0 flex flex-col">
       <header className="mb-10 shrink-0">
         <h1 className="text-[28px] font-semibold tracking-tight text-text-primary uppercase mb-1">
           SETTINGS
@@ -101,7 +101,7 @@ export const SettingsPage = () => {
 
       <div className="flex flex-col lg:flex-row gap-12 flex-1 min-h-0">
         {/* LEFT Navigation */}
-        <div className="w-full lg:w-64 shrink-0 overflow-y-auto">
+        <div className="w-full lg:w-64 shrink-0 lg:overflow-y-auto [scrollbar-gutter:stable]">
           {sections.map(section => (
             <div key={section} className="mb-8">
               <h3 className="text-[11px] font-bold text-text-muted tracking-widest uppercase mb-3 px-3">
@@ -147,7 +147,7 @@ export const SettingsPage = () => {
         </div>
 
         {/* RIGHT Content */}
-        <div className="flex-1 overflow-y-auto pb-20 pr-4">
+        <div className="flex-1 min-h-0 overflow-y-auto pb-20 pr-4 [scrollbar-gutter:stable]">
           <SettingsContent 
             activeCategory={activeCategory} 
             settings={settings} 
