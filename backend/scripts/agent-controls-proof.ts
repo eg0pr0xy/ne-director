@@ -58,5 +58,5 @@ assert.equal(apiCommunication.agent.capabilities.find((capability: any) => capab
 const rejectedChief = await fetch(`${base}/agents/CHIEF_OF_STAFF/operator-policy`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: (await service.getAgent('CHIEF_OF_STAFF')).operatorPolicy.version, status: 'PAUSED' }) });
 assert.equal(rejectedChief.status, 422);
 await new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve()));
-console.log(JSON.stringify({ agents: initial.length, api: true, qualityBlocked: true, connectionAware: true, pauseRestore: true, staleRejected: true, auditEvents: (await service.events()).length, noAgentRuntime: true, noScheduler: true, noExternalMutation: true }));
+console.log(JSON.stringify({ agents: initial.length, api: true, qualityBlocked: true, connectionAware: true, pauseRestore: true, staleRejected: true, auditEvents: (await service.events()).length, runtimeAuthority: 'INTERNAL_READ_PREPARATION_ONLY', noExternalMutation: true }));
 await pool.end();
