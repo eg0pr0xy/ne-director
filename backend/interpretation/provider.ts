@@ -13,8 +13,9 @@ export const pointerFor = (input: InterpretationInput, needle: string): Evidence
 
 export class ControlledModelEgressPolicy implements ModelEgressPolicy {
   readonly mode = 'LOCAL_OR_EXPLICITLY_CONFIGURED_ONLY' as const;
+  constructor(private readonly explicitlyAuthorizedSourceRecordId = process.env.DIRECTOR_REAL_SOURCE_RECORD_ID) {}
   authorize(_input: InterpretationInput, provenance: Record<string, unknown>) {
-    if (provenance.synthetic_controlled !== true) throw new CoreError('MODEL_EGRESS_NOT_AUTHORIZED', 403, 'Model egress requires a controlled synthetic source record');
+    if (provenance.synthetic_controlled !== true && _input.sourceRecordId !== this.explicitlyAuthorizedSourceRecordId) throw new CoreError('MODEL_EGRESS_NOT_AUTHORIZED', 403, 'Model egress requires a controlled synthetic source record or explicit operator selection');
   }
 }
 
