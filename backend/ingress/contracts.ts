@@ -48,6 +48,7 @@ export interface Connection {
   enabled: boolean;
   capabilities: ConnectionCapability[];
   authorizationState: AuthorizationState;
+  authorizationScopes?: string[];
   connectionState: ConnectionState;
   configurationMetadata: Record<string, unknown>;
   lastAttemptAt?: string;

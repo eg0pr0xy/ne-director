@@ -9,7 +9,7 @@ type ProviderRegistry = { communication: Map<string, CommunicationIngressProvide
 type Hooks = { afterSourceRecordPersisted?: () => void };
 
 const accountFromRow = (row: any): SourceAccount => ({ id: row.id, connectionId: row.connection_id ?? undefined, provider: row.provider, capability: row.capability, displayName: row.display_name, accountIdentifier: row.account_identifier, enabled: row.enabled, connectionState: row.connection_state, cursorState: row.cursor_state ?? {}, selectionMetadata: row.selection_metadata ?? {}, lastAttemptAt: row.last_attempt_at?.toISOString(), lastSuccessfulSyncAt: row.last_successful_sync_at?.toISOString(), lastErrorCode: row.last_error_code ?? undefined });
-const connectionFromRow = (row: any): Connection => ({ id: row.id, displayName: row.display_name, provider: row.provider, accountIdentifier: row.account_identifier, enabled: row.enabled, capabilities: row.capabilities ?? [], authorizationState: row.authorization_state, connectionState: row.connection_state, configurationMetadata: row.configuration_metadata ?? {}, lastAttemptAt: row.last_attempt_at?.toISOString(), lastSuccessfulSyncAt: row.last_successful_sync_at?.toISOString(), lastErrorCode: row.last_error_code ?? undefined });
+const connectionFromRow = (row: any): Connection => ({ id: row.id, displayName: row.display_name, provider: row.provider, accountIdentifier: row.account_identifier, enabled: row.enabled, capabilities: row.capabilities ?? [], authorizationState: row.authorization_state, authorizationScopes: row.authorization_scopes ?? [], connectionState: row.connection_state, configurationMetadata: row.configuration_metadata ?? {}, lastAttemptAt: row.last_attempt_at?.toISOString(), lastSuccessfulSyncAt: row.last_successful_sync_at?.toISOString(), lastErrorCode: row.last_error_code ?? undefined });
 const identity = (value: ExternalIdentity) => ({ value: value.value, displayName: value.displayName, resolutionState: value.resolutionState, canonicalPersonRef: value.canonicalPersonRef });
 const json = (value: unknown) => JSON.stringify(value);
 const unassigned = { authority: 'INGRESS', external_id: 'unassigned', display_snapshot: 'UNASSIGNED' };
@@ -89,9 +89,9 @@ export class IngressService {
   }
 
   /** Provider callback/composition seam: only a verified provider flow may mark authorization complete. */
-  async confirmAuthorization(id: string) {
+  async confirmAuthorization(id: string, authorizationScopes: string[] = []) {
     await this.getConnection(id);
-    await this.db.query("update director_connections set authorization_state='AUTHORIZED',connection_state='UNAVAILABLE',last_error_code=null,updated_at=now() where id=$1 and enabled=true", [id]);
+    await this.db.query("update director_connections set authorization_state='AUTHORIZED',authorization_scopes=$2,connection_state='UNAVAILABLE',last_error_code=null,updated_at=now() where id=$1 and enabled=true", [id, json([...new Set(authorizationScopes)])]);
     return this.getConnection(id);
   }
 

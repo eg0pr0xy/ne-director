@@ -1,0 +1,17 @@
+# Approval-Bound Action Execution Authority 001 — Census
+
+| Concept | Current owner | Persistence / API / UI | Reuse | Must not repurpose | Gap |
+|---|---|---|---|---|---|
+| Mutation capabilities | `backend/agents/contracts.ts` | Versioned charter definitions; `/agents` projections; Settings → Agents | Global autonomy keys remain the upper policy bound | Existing `NOT_IMPLEMENTED` capability state must not be treated as execution authority | Add a narrow implemented Calendar write capability and action-specific approval gate |
+| Global / agent policy | `AgentOperatorControlService` | `director_operator_controls`, per-agent policy/override tables; `/operator-controls`, `/agents`; Settings → Autonomy | Live reauthorization and audit events | `ALLOWED` must never substitute for a specific approval | Action execution must require both policy and immutable approval |
+| Current approvals | Core decisions / UI drawer | `director_decisions`, `recordDecision`; `ContextDrawer` “Approve” | Human actor/audit vocabulary only | Decision recording is not provider-action approval and cannot authorize mutation | Canonical action and approval records are required |
+| Agent runtime | `AgentRuntimeRunner` | Trigger/work/artifact/event tables; runtime APIs; Today I Handled | Work/artifact provenance can be referenced | Internal work must remain internal-only; no artifact may auto-execute | Explicit proposed action chain only |
+| Event/audit history | Core, runtime, policy services | `director_events`, runtime and policy event tables | Safe append-only event approach | Do not overload ingress factual events or policy audit rows | Action-specific immutable event log is required |
+| Google connection / secrets | `IngressService`, `GoogleAuthorizationFlow`, SecretStore | `director_connections`, source accounts, opaque DPAPI/env refs; connection APIs and Settings | Connection identity, authorization state, opaque secret reference boundary | Existing credentials are read-only; tokens must never be copied or logged | Deliberate write-scope reauthorization and write-scope state are required |
+| Google Calendar adapter | `GoogleScheduleIngressAdapter` | Read-only Calendar v3 list/read facts | Read-after-write verification can use existing read adapter | No Google call belongs in action service; no generic HTTP method/URL escape hatch | Narrow Calendar mutation provider and typed receipt required |
+| OAuth scopes / retries | `backend/ingress/google.ts` | `gmail.readonly`, `calendar.readonly`; safe GET retry | Sanitized error envelope/token refresh handling | Do not silently broaden old credentials or retry ambiguous POST | Explicit write scope, mutation error mapping, idempotency/reconciliation state needed |
+| UI review surfaces | Today, ContextDrawer, Settings → Autonomy | Existing decision UI is primary Chief-of-Staff context | Styling/navigation primitives | Mock “inform team” copy does not evidence an action | Show exact immutable payload, provenance, approve/reject, then explicit execute |
+
+## Census result
+
+No canonical external action, immutable action approval, provider receipt, or Calendar-write OAuth scope authority exists. A new bounded canonical authority is required. The first provider family is restricted to `CALENDAR_EVENT_CREATE` with no attendees, avoiding outbound invitation behavior. Real-provider acceptance is blocked until an operator deliberately reauthorizes an isolated proof-calendar connection for the explicit Calendar write scope.

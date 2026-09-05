@@ -5,6 +5,7 @@ import { EnvironmentSecretStore, type SecretReference, type SecretStore, environ
 
 const gmailScope = 'https://www.googleapis.com/auth/gmail.readonly';
 const calendarScope = 'https://www.googleapis.com/auth/calendar.readonly';
+export const googleCalendarWriteScope = 'https://www.googleapis.com/auth/calendar.events';
 const oauthAuthorize = 'https://accounts.google.com/o/oauth2/v2/auth';
 const oauthToken = 'https://oauth2.googleapis.com/token';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -134,17 +135,17 @@ export class GoogleTokenProvider {
 }
 
 export class GoogleAuthorizationFlow {
-  private pending = new Map<string, { connectionId: string; verifier: string; expiresAt: number }>();
+  private pending = new Map<string, { connectionId: string; verifier: string; expiresAt: number; scopes: string[] }>();
   private clientId() { return process.env.DIRECTOR_GOOGLE_OAUTH_CLIENT_ID; }
   private redirectUri() { return process.env.DIRECTOR_GOOGLE_OAUTH_REDIRECT_URI; }
 
-  begin(connection: Connection) {
+  begin(connection: Connection, request: { calendarWrite?: boolean } = {}) {
     const clientId = this.clientId(); const redirectUri = this.redirectUri();
     if (!clientId || !redirectUri) throw new CoreError('GOOGLE_AUTH_CONFIGURATION_REQUIRED', 503, 'Google OAuth client configuration is required');
     const state = opaque(); const verifier = opaque(); const challenge = createHash('sha256').update(verifier).digest('base64url');
-    this.pending.set(state, { connectionId: connection.id, verifier, expiresAt: Date.now() + 10 * 60_000 });
+    const scopes = [gmailScope, calendarScope, ...(request.calendarWrite ? [googleCalendarWriteScope] : [])]; this.pending.set(state, { connectionId: connection.id, verifier, expiresAt: Date.now() + 10 * 60_000, scopes });
     const url = new URL(oauthAuthorize);
-    url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', scope: `${gmailScope} ${calendarScope}`, state, code_challenge: challenge, code_challenge_method: 'S256' }).toString();
+    url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', scope: scopes.join(' '), state, code_challenge: challenge, code_challenge_method: 'S256' }).toString();
     return { authorizationUrl: url.toString(), state };
   }
 
@@ -157,7 +158,7 @@ export class GoogleAuthorizationFlow {
     if (!response.ok) throw new CoreError('GOOGLE_AUTH_CALLBACK_REJECTED', 400, 'Google authorization callback rejected');
     const tokens = await response.json() as { refresh_token?: string };
     if (!tokens.refresh_token) throw new CoreError('GOOGLE_SECRET_AUTHORITY_REQUIRED', 503, 'A local secret authority must store the Google refresh token');
-    return { connectionId: pending.connectionId, refreshToken: tokens.refresh_token };
+    return { connectionId: pending.connectionId, refreshToken: tokens.refresh_token, authorizationScopes: pending.scopes };
   }
 }
 
