@@ -18,9 +18,9 @@ const inZone = (year: number, month: number, day: number, hour: number, minute: 
 
 export const resolveDeadline = (claim: string | undefined, receivedAt: Date | undefined, timeZone: string | undefined): Date | undefined => {
   if (!claim || !receivedAt || !timeZone) return undefined;
-  const exact = /^by (\d{1,2}):(\d{2})$/i.exec(claim.trim()); const parts = localParts(receivedAt, timeZone);
+  const exact = /^(?:by|bis) (\d{1,2}):(\d{2})$/i.exec(claim.trim()); const parts = localParts(receivedAt, timeZone);
   if (exact) { const hour = Number(exact[1]); const minute = Number(exact[2]); if (hour <= 23 && minute <= 59) return inZone(parts.year, parts.month, parts.day, hour, minute, timeZone); }
-  if (/^tomorrow$/i.test(claim.trim())) { const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day) + 86400000); return inZone(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), parts.hour, parts.minute, timeZone); }
+  if (/^(?:by )?tomorrow$/i.test(claim.trim()) || /^(?:bis )?morgen$/i.test(claim.trim())) { const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day) + 86400000); return inZone(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), parts.hour, parts.minute, timeZone); }
   return undefined;
 };
 
@@ -40,9 +40,9 @@ export class InterpretationService {
     try {
       this.egressPolicy.authorize(input, source.provenance ?? {});
       const output = await this.provider.interpret(input);
-      if (output.interpreterId !== this.provider.interpreterId || output.interpreterVersion !== this.provider.interpreterVersion || output.contractVersion !== this.provider.contractVersion || !Array.isArray(output.candidates)) throw new CoreError('INTERPRETATION_SCHEMA_INVALID', 422, 'Interpretation provider output is invalid');
+      if (output.interpreterId !== this.provider.interpreterId || typeof output.modelId !== 'string' || !output.modelId || output.interpreterVersion !== this.provider.interpreterVersion || output.contractVersion !== this.provider.contractVersion || !Array.isArray(output.candidates)) throw new CoreError('INTERPRETATION_SCHEMA_INVALID', 422, 'Interpretation provider output is invalid');
       for (const candidate of output.candidates) await this.persistCandidate(runId, source, input, candidate, output);
-      await this.db.query("update director_interpretation_runs set status='COMPLETED',completed_at=now(),provenance=provenance || $2::jsonb where id=$1", [runId, json({ output_hash: hash(JSON.stringify(output.candidates)), generated_at: output.generatedAt, latency_metadata_only: true })]);
+      await this.db.query("update director_interpretation_runs set status='COMPLETED',completed_at=now(),provenance=provenance || $2::jsonb where id=$1", [runId, json({ output_hash: hash(JSON.stringify(output.candidates)), model_id: output.modelId, generated_at: output.generatedAt, latency_metadata_only: true })]);
     } catch (error) {
       const code = error instanceof CoreError ? error.code : 'INTERPRETATION_PROVIDER_UNAVAILABLE';
       await this.db.query("update director_interpretation_runs set status='FAILED',completed_at=now(),failure_code=$2 where id=$1", [runId, code]);
@@ -60,7 +60,7 @@ export class InterpretationService {
       }
       if (!candidate.evidence.length) rejection = 'INTERPRETATION_EVIDENCE_MISSING';
       if (!rejection && candidate.deadlineClaim) {
-        const deadlineEvidence = candidate.evidence.some(evidence => sourceText(source, evidence.sourceField)?.slice(evidence.characterStart, evidence.characterEnd).toLowerCase() === candidate.deadlineClaim!.toLowerCase());
+        const deadlineEvidence = candidate.evidence.some(evidence => sourceText(source, evidence.sourceField)?.slice(evidence.characterStart, evidence.characterEnd) === candidate.deadlineClaim);
         if (!deadlineEvidence) rejection = 'INTERPRETATION_DEADLINE_UNEVIDENCED';
         else due = resolveDeadline(candidate.deadlineClaim, source.received_at, input.sourceTimezone);
       }

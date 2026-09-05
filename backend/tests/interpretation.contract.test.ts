@@ -28,6 +28,11 @@ test('model egress accepts controlled data only', () => {
 
 test('temporal claims resolve deterministically only when explicit', () => {
   assert.equal(resolveDeadline('by 14:00', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin')?.toISOString(), '2026-09-03T12:00:00.000Z');
+  assert.equal(resolveDeadline('bis 14:00', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin')?.toISOString(), '2026-09-03T12:00:00.000Z');
   assert.ok(resolveDeadline('tomorrow', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin'));
+  assert.ok(resolveDeadline('by tomorrow', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin'));
+  assert.ok(resolveDeadline('morgen', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin'));
+  assert.ok(resolveDeadline('bis morgen', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin'));
+  assert.equal(resolveDeadline('soon', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin'), undefined);
   assert.equal(resolveDeadline('ASAP', new Date('2026-09-03T09:42:00.000Z'), 'Europe/Berlin'), undefined);
 });

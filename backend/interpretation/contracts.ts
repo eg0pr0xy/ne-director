@@ -1,4 +1,4 @@
-export const interpretationContractVersion = 'NE_DIRECTOR_INTERPRETATION_V1';
+export const interpretationContractVersion = 'NE_DIRECTOR_INTERPRETATION_V2';
 export const candidateKinds = ['DECISION_REQUEST', 'ACTION_REQUEST', 'WAITING_EXPECTATION', 'FYI', 'NO_ACTION', 'ABSTAIN'] as const;
 export type CandidateKind = typeof candidateKinds[number];
 export type CandidateValidationStatus = 'PROPOSED' | 'VALIDATED' | 'REJECTED' | 'ABSTAINED' | 'SUPERSEDED' | 'MATERIALIZED';
@@ -37,6 +37,7 @@ export interface InterpretationCandidate {
 export interface InterpretationOutput {
   candidates: InterpretationCandidate[];
   interpreterId: string;
+  modelId: string;
   interpreterVersion: string;
   contractVersion: string;
   generatedAt: string;
