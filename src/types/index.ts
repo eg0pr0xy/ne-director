@@ -63,6 +63,9 @@ export interface HandledAction {
   id: string;
   description: string;
   time: string;
+  agentId?: string;
+  artifactId?: string;
+  externalActions?: 'NONE';
 }
 
 export interface OperationalInsight {
