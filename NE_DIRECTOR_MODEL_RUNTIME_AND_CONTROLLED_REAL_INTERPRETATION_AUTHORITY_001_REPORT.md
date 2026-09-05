@@ -2,71 +2,106 @@
 
 ## Verdict
 
-`MODEL_RUNTIME_PARTIAL`
+`REAL_MODEL_ACCEPTANCE = PROVEN`
 
-The provider-neutral OpenAI-compatible structured runtime adapter, strict JSON
-boundary, explicit configuration, guarded real-model API, and safe runtime
-health projection are implemented. No explicit runtime endpoint/model was
-configured in this environment, so a real runtime and synthetic gauntlet could
-not be executed. No real Gmail source was selected by an operator.
+The configured local OpenAI-compatible runtime was reached successfully at
+`http://127.0.0.1:11434/v1` as `qwen3.5:27b-q4_K_M`. Its health projection
+reported `AVAILABLE`, and the actual runtime completed a controlled 30-case
+synthetic evaluation through `InterpretationInput ->
+StructuredLlmInterpretationProvider -> OpenAiCompatibleRuntime`.
 
-## Base and runtime contract
+`MODEL_QUALITY_VERDICT = MODEL_REQUIRES_IMPROVEMENT`
 
-- Base: `a06eb52764be0d30d0cf2f736e90af60d92fb949`.
-- `ModelRuntime` exposes runtime/model identifiers, capability metadata,
-  `generateStructured`, and `health`.
-- `OpenAiCompatibleRuntime` targets an explicitly configured OpenAI-compatible
-  HTTP endpoint; it can therefore be used with compatible local runtimes
-  without vendor SDK coupling.
-- `StructuredLlmInterpretationProvider` remains behind the existing
-  `InterpretationProvider` contract. The deterministic provider remains the
-  proof provider.
+The runtime and authority boundary are proven; the measured extraction quality
+is not sufficient to authorize real-source interpretation. No real Gmail,
+Calendar, or other source data was supplied to the model.
 
-## Configuration and privacy
+`SYNTHETIC_REAL_MODEL_ACCEPTANCE_PROVEN`
 
-The runtime requires explicit `DIRECTOR_MODEL_RUNTIME=OPENAI_COMPATIBLE`, base
-URL, and model name. An optional API key must be an opaque SecretStore
-reference; no API key is persisted in PostgreSQL. With no configuration,
-health is `NOT_CONFIGURED`.
+`REAL_SOURCE_OPERATOR_SELECTION_REQUIRED`
 
-Only one bounded InterpretationInput is sent to a configured runtime. It
-excludes attachments, OAuth material, browser state, mailbox batches, database
-dumps, hidden prompts, and conversation history. The runtime stores no raw
-provider response, prompt, email body, secret, or chain-of-thought.
+## Live runtime evidence
 
-## Strict output and validation
+- `GET /api/v1/model-runtime/health` returned `AVAILABLE` with runtime ID
+  `OPENAI_COMPATIBLE` and model ID `qwen3.5:27b-q4_K_M`.
+- The adapter uses the OpenAI-compatible `chat/completions` endpoint with an
+  explicit bounded 90-second default request limit, a bounded 450-token
+  completion limit, zero temperature, `reasoning_effort: none`, and JSON mode.
+- There is no model fallback. A transport, malformed JSON, schema, evidence,
+  canonical-ID, or timeout failure fails closed.
 
-OpenAI-compatible responses are bounded, JSON-parsed, and validated with a
-strict schema. Unknown fields, tool/action fields, canonical IDs, malformed
-JSON, empty/oversized output, invalid kinds, and invalid evidence fail closed
-before canonical materialization. The existing evidence, temporal, conflict,
-and materialization gauntlets remain downstream deterministic authorities.
+## Controlled real-model evaluation
 
-## Prompt and no-agent boundary
+Thirty deterministic synthetic/adversarial `InterpretationInput` records were
+sent to the configured Qwen model. The suite covers direct/implicit
+decision/action/waiting/FYI/no-action/abstention, exact/relative/ambiguous/no
+deadlines, German/English/mixed language, negatives/cancellations,
+quotes/forwards/multiple requests and dates, unsupported project/identity/
+option inference, malformed and short text, and six prompt-injection-style
+messages.
 
-The extraction prompt declares source communication untrusted, forbids tool
-use/action/unsupported inference, and requires evidence-backed structured JSON
-or abstention. There is no scheduler, background scan, inbox-wide endpoint,
-agent loop, outbound action, provider mutation, ORDO/NARRATE/PRESENCE call, or
-automatic real materialization.
+| Measure | Result |
+| --- | ---: |
+| caseCount | 30 |
+| schemaPassRate | 70.00% (21/30) |
+| candidateKindAccuracy | 63.33% (19/30) |
+| evidencePassRate | 70.00% (21/30) |
+| unsupportedClaimRate | 10.00% (3/30 accepted outputs) |
+| temporalAccuracy | 60.00% (18/30) |
+| abstentionAccuracy | 63.33% (19/30) |
+| promptInjectionSafetyRate | 100.00% (6/6 targeted safety pass) |
+| latencyP50 | 38,542 ms |
+| latencyP95 | 45,503 ms |
 
-## Real model and real source status
+The prompt-injection safety rate is independently measured over the six
+injection cases. A response was safe only when it was a validated non-action
+classification or failed closed before acceptance. No tool call, outbound
+request, Gmail mutation, Calendar mutation, or canonical mutation exists in
+either path.
 
-- `REAL_MODEL_ACCEPTANCE_PENDING`: no configured runtime was reachable, so the
-  required 30-case synthetic/adversarial gauntlet was not run through a real
-  model.
-- `REAL_SOURCE_ACCEPTANCE_PENDING`: no operator configured
-  `DIRECTOR_REAL_SOURCE_RECORD_ID`; no real Gmail content was sent anywhere.
-- `/api/v1/interpretations/real-model` requires that exact operator-selected
-  ID and `materialize=false`; it rejects all other source IDs and cannot
-  materialize real mailbox results in this authority.
+## Evidence and authority safety
 
-## Tests and regressions
+- The model selects evidence spans only. The server checks their bounds against
+  the supplied controlled source and derives the SHA-256 evidence hash locally.
+  A model-supplied evidence hash is never trusted.
+- Non-abstaining candidates without evidence, out-of-bounds spans, malformed
+  JSON, unknown fields, and canonical UUID-like IDs are rejected before the
+  structured provider returns output.
+- The evaluation imports no database connection, has no materialization step,
+  and invokes no ingress/provider mutation API. Failed validation therefore
+  cannot create a canonical candidate, event, timeline entry, or source fact.
+- Evaluation output contains only case number, pass/fail state, safe failure
+  category, latency, and aggregate metrics. It never logs prompts, model raw
+  responses, secrets, access tokens, refresh tokens, or real-source content.
+- The real-model HTTP route remains constrained to an exact
+  `DIRECTOR_REAL_SOURCE_RECORD_ID` and `materialize=false`; no such operator
+  selection was set or exercised for this authority.
 
-- `core:test`: **23/23** passed, including strict output and not-configured
-  runtime tests.
-- `interpretation:proof` and `ingress:proof` passed against
-  `DIRECTOR_PROOF_DATABASE_URL`.
-- `npm run lint` passed.
-- No real runtime claim is made until explicit configuration allows the
-  complete synthetic gauntlet.
+## Failure isolation and quality conclusion
+
+Nine of the 30 full-suite outputs were rejected by the strict schema/evidence
+boundary (seven schema and two evidence-span failures). The targeted injection
+subset had three safe valid classifications and three safe schema rejections.
+These are model-quality failures, not authority-safety failures. The required
+quality verdict is therefore `MODEL_REQUIRES_IMPROVEMENT`; remediation must
+improve structured-output and temporal/candidate behavior before any operator
+selects a real source.
+
+## Regression evidence
+
+- `npm run core:test`: **24/24 passed**.
+- `npm run interpretation:proof` with `DIRECTOR_PROOF_DATABASE_URL`: passed;
+  deterministic replay and restart evidence retained.
+- `npm run ingress:proof` with `DIRECTOR_PROOF_DATABASE_URL`: passed;
+  ingress replay, restart durability, scoped connections, and revocation
+  evidence retained.
+- `npm run lint`: passed.
+- `npm run build`: passed (Vite emitted its existing >500 kB chunk-size warning;
+  build succeeded).
+
+## Real-source status
+
+`REAL_SOURCE_ACCEPTANCE_PENDING`
+
+No operator has selected a real source, no real Gmail content has been
+interpreted, and this authority stops before any such use.
