@@ -5,6 +5,7 @@ import { DirectorSettings } from "../types/settings";
 import { defaultSettings } from "../mocks/defaultSettings";
 import { DirectorProfile } from "../types/profile";
 import { defaultProfile } from "../mocks/defaultProfile";
+import { agentControlApi, agentControlApiEnabled, type OperatorControls } from '../services/agentControls';
 
 export type AppPage = 'TODAY' | 'ATTENTION' | 'PROJECTS' | 'PEOPLE' | 'TIMELINE' | 'SEARCH' | 'CHAT' | 'SETTINGS' | 'PROFILE';
 
@@ -34,6 +35,7 @@ interface AppState {
   attentionItems: AttentionItem[];
   allTimeline: TimelineEvent[];
   settings: DirectorSettings;
+  authorityAvailable: boolean;
   updateSettings: (newSettings: DirectorSettings) => void;
   resetSettings: () => void;
 
@@ -49,6 +51,11 @@ interface AppState {
 }
 
 const AppContext = createContext<AppState | undefined>(undefined);
+
+const flattenAutonomy = (autonomy: DirectorSettings['autonomy']) => ({ createInternalHolds: autonomy.calendar.createInternalHolds, moveInternalMeetings: autonomy.calendar.moveInternalMeetings, moveExternalMeetings: autonomy.calendar.moveExternalMeetings, cancelMeetings: autonomy.calendar.cancelMeetings, draftInternalReplies: autonomy.communication.draftInternalReplies, sendInternalReplies: autonomy.communication.sendInternalReplies, draftExternalReplies: autonomy.communication.draftExternalReplies, sendExternalReplies: autonomy.communication.sendExternalReplies, sendFollowUps: autonomy.communication.sendFollowUps, distributeApproved: autonomy.documents.distributeApproved, shareConfidential: autonomy.documents.shareConfidential, updateInternalState: autonomy.production.updateInternalState, resolveDependency: autonomy.production.resolveDependency, changeSchedule: autonomy.production.changeSchedule, bookTravel: autonomy.financial.bookTravel });
+const displayPermission = (value: string) => value === 'SUGGEST_ONLY' ? 'Suggest Only' : value === 'APPROVAL_REQUIRED' ? 'Approval Required' : 'Allowed';
+const applyControls = (settings: DirectorSettings, controls: OperatorControls): DirectorSettings => ({ ...settings, chiefOfStaff: controls.chiefOfStaff, autonomy: { ...settings.autonomy, isPaused: controls.globalPause, calendar: { createInternalHolds: displayPermission(controls.globalAutonomy.createInternalHolds) as any, moveInternalMeetings: displayPermission(controls.globalAutonomy.moveInternalMeetings) as any, moveExternalMeetings: displayPermission(controls.globalAutonomy.moveExternalMeetings) as any, cancelMeetings: displayPermission(controls.globalAutonomy.cancelMeetings) as any }, communication: { draftInternalReplies: displayPermission(controls.globalAutonomy.draftInternalReplies) as any, sendInternalReplies: displayPermission(controls.globalAutonomy.sendInternalReplies) as any, draftExternalReplies: displayPermission(controls.globalAutonomy.draftExternalReplies) as any, sendExternalReplies: displayPermission(controls.globalAutonomy.sendExternalReplies) as any, sendFollowUps: displayPermission(controls.globalAutonomy.sendFollowUps) as any }, documents: { ...settings.autonomy.documents, distributeApproved: displayPermission(controls.globalAutonomy.distributeApproved) as any, shareConfidential: displayPermission(controls.globalAutonomy.shareConfidential) as any }, production: { ...settings.autonomy.production, updateInternalState: displayPermission(controls.globalAutonomy.updateInternalState) as any, resolveDependency: displayPermission(controls.globalAutonomy.resolveDependency) as any, changeSchedule: displayPermission(controls.globalAutonomy.changeSchedule) as any }, financial: { ...settings.autonomy.financial, bookTravel: displayPermission(controls.globalAutonomy.bookTravel) as any } } });
+const apiPermission = (value: string) => value === 'Suggest Only' ? 'SUGGEST_ONLY' : value === 'Approval Required' ? 'APPROVAL_REQUIRED' : 'ALLOWED';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<AppPage>('TODAY');
@@ -102,15 +109,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([]);
   const [allTimeline, setAllTimeline] = useState<TimelineEvent[]>([]);
   const [settings, setSettings] = useState<DirectorSettings>(() => {
+    if (agentControlApiEnabled) return defaultSettings;
     const saved = localStorage.getItem("ne_director_settings");
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { console.error(e); }
     }
     return defaultSettings;
   });
+  const [operatorControls, setOperatorControls] = useState<OperatorControls | null>(null);
+  const [authorityAvailable, setAuthorityAvailable] = useState(!agentControlApiEnabled);
 
   useEffect(() => {
-    localStorage.setItem("ne_director_settings", JSON.stringify(settings));
+    if (!agentControlApiEnabled) localStorage.setItem("ne_director_settings", JSON.stringify(settings));
     
     if (settings.appearance.theme === "White") {
       document.documentElement.classList.add("theme-white");
@@ -130,12 +140,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [settings]);
 
   const updateSettings = (newSettings: DirectorSettings) => {
-    setSettings(newSettings);
+    if (!agentControlApiEnabled) { setSettings(newSettings); return; }
+    if (!operatorControls) return;
+    agentControlApi.updateControls({ version: operatorControls.version, globalPause: newSettings.autonomy.isPaused, globalAutonomy: Object.fromEntries(Object.entries(flattenAutonomy(newSettings.autonomy)).map(([key, value]) => [key, apiPermission(value)])), chiefOfStaff: newSettings.chiefOfStaff }).then(controls => { setOperatorControls(controls); setSettings(previous => applyControls({ ...previous, ...newSettings }, controls)); setAuthorityAvailable(true); }).catch(() => { setAuthorityAvailable(false); setLoadError('Operator controls are unavailable. Authority settings remain disabled.'); });
   };
 
   const resetSettings = () => {
-    setSettings(defaultSettings);
+    updateSettings(defaultSettings);
   };
+
+  useEffect(() => {
+    if (!agentControlApiEnabled) return;
+    agentControlApi.controls().then(controls => { setOperatorControls(controls); setSettings(previous => applyControls(previous, controls)); setAuthorityAvailable(true); }).catch(() => { setAuthorityAvailable(false); setLoadError('Operator controls unavailable. No local authority settings are used.'); });
+  }, []);
 
 
   useEffect(() => {
@@ -265,7 +282,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       toastMessage, showToast, hideToast,
       profile, updateProfile, resetProfile,
       settingsCategory, setSettingsCategory, openSettings,
-      projects, people, attentionItems, allTimeline, settings, updateSettings, resetSettings,
+      projects, people, attentionItems, allTimeline, settings, authorityAvailable, updateSettings, resetSettings,
       approveDecision, getPerson, getProject
     }}>
       {children}
